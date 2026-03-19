@@ -12,6 +12,10 @@
 
 #include <limits>
 
+// TODO: remove this constant and define it somewhere else, this was just to
+//       test the library import
+constexpr float FIRMWARE_TICK_INTERVAL_ms = 100;
+
 Controller::Controller() :
 	  windup (nullptr)
 	, winddown(nullptr)
