@@ -14,9 +14,6 @@
 #include "windup.hpp"
 #include "winddown.hpp"
 
-using control::FluxSpeed;
-using control::FluxSpeed_t;
-
 class Controller {
 public:
 	Controller();
@@ -31,9 +28,7 @@ public:
 	virtual void setup() = 0;
 	virtual void loop()  = 0;
 
-	void set_amplitude(float amplitude);
-	void set_frequency(float frequency_hz);
-	void set_flux_angular_speed(float w_rads);
+	void set_voltage (const float voltage);
 	void set_windup  (const Windup   *windup);
 	void set_winddown(const Winddown *winddown);
 

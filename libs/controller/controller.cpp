@@ -20,21 +20,11 @@ Controller::Controller() :
 	  windup (nullptr)
 	, winddown(nullptr)
 {
-	this->control_point.amplitude = 0.0f;
-	this->control_point.flux_speed.type  = control::FluxSpeed_t::FREQUENCY;
-	this->control_point.flux_speed.value = 0.0f;
+	this->control_point.voltage = 0.0f;
 }
 
-void Controller::set_amplitude(float amplitude) {
-	this->control_point.amplitude = amplitude;
-}
-void Controller::set_frequency(float frequency_hz) {
-	this->control_point.flux_speed.value = frequency_hz;
-	this->control_point.flux_speed.type  = control::FluxSpeed_t::FREQUENCY;
-}
-void Controller::set_flux_angular_speed(float w_rads) {
-	this->control_point.flux_speed.value = w_rads;
-	this->control_point.flux_speed.type  = control::FluxSpeed_t::ANGULAR_SPEED;
+void Controller::set_voltage (const float voltage) {
+	this->control_point.voltage = voltage;
 }
 void Controller::set_windup  (const Windup   *windup  ) {
 	this->windup   = windup;

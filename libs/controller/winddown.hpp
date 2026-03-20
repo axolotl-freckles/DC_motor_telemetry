@@ -1,19 +1,17 @@
 /**
  * @file windown.hpp
  * @author ACMAX (you@domain.com)
- * @brief 
+ * @brief
  * @version 0.1
  * @date 2025-10-29
- * 
+ *
  * @copyright Copyright (c) 2025
- * 
+ *
  */
 #pragma once
 
 #include "controller_types.hpp"
 
-using control::FluxSpeed;
-using control::FluxSpeed_t;
 using control::ControlPoint;
 
 class Winddown {
@@ -37,41 +35,20 @@ public:
 	ControlPoint step(float delta_time_s) const;
 
 	inline void set_period(float period) { _period = period; }
-	void set_st_amplitude(float amplitude);
-	void set_en_amplitude(float amplitude);
-	void set_st_flux_speed(float flux_speed_val);
-	void set_en_flux_speed(float flux_speed_val);
+	void set_st_voltage(float voltage);
+	void set_en_voltage(float voltage);
 
-	inline const float& get_st_amplitude() const { return _st_amplitude; }
-	inline const float& get_en_amplitude() const { return _en_amplitude; }
-	inline const FluxSpeed get_st_flux_speed() const {
-		return (FluxSpeed) {
-			.value = _st_flx_speed,
-			.type  = _speed_type
-		};
-	}
-	inline const FluxSpeed get_en_flux_speed() const {
-		return (FluxSpeed) {
-			.value = _en_flx_speed,
-			.type  = _speed_type
-		};
-	}
-	inline const FluxSpeed_t& get_flux_speed_type() const { return _speed_type; }
+	inline const float& get_st_voltage() const { return _st_voltage; }
+	inline const float& get_en_voltage() const { return _en_voltage; }
 
 	LinearWinddown(
 		float period_s,
-		float start_amplitude, float start_flxSpeed_val,
-		float end_amplitude,   float end_flxSpeed_val,
-		FluxSpeed_t flux_speed_type = FluxSpeed_t::FREQUENCY
+		float start_amplitude,
+		float end_amplitude
 	);
 	virtual ~LinearWinddown() { }
 private:
-	float _st_amplitude;
-	float _en_amplitude;
-	float _amp_slope;
-
-	float _st_flx_speed;
-	float _en_flx_speed;
-	float _flux_val_slope;
-	FluxSpeed_t _speed_type;
+	float _st_voltage;
+	float _en_voltage;
+	float _volt_slope;
 };

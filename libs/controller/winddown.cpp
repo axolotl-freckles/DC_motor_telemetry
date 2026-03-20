@@ -1,12 +1,12 @@
 /**
  * @file windown.cpp
  * @author ACMAX (you@domain.com)
- * @brief 
+ * @brief
  * @version 0.1
  * @date 2025-10-29
- * 
+ *
  * @copyright Copyright (c) 2025
- * 
+ *
  */
 #include "winddown.hpp"
 
@@ -17,42 +17,25 @@ ControlPoint LinearWinddown::step(float delta_time) const {
 	float proportion = delta_time / _period;
 
 	return (ControlPoint) {
-		.amplitude = _st_amplitude + proportion*_amp_slope,
-		.flux_speed {
-			.value = _st_flx_speed + proportion*_flux_val_slope,
-			.type = _speed_type
-		}
+		.voltage = _st_voltage + proportion*_volt_slope
 	};
 }
 
-void LinearWinddown::set_st_amplitude(float amplitude) {
-	_st_amplitude = amplitude;
-	_amp_slope = _en_amplitude - _st_amplitude;
+void LinearWinddown::set_st_voltage(float voltage) {
+	_st_voltage = voltage;
+	_volt_slope = _en_voltage - _st_voltage;
 }
-void LinearWinddown::set_en_amplitude(float amplitude) {
-	_en_amplitude = amplitude;
-	_amp_slope = _en_amplitude - _st_amplitude;
-}
-void LinearWinddown::set_st_flux_speed(float flux_speed_val) {
-	_st_flx_speed = flux_speed_val;
-	_flux_val_slope = _en_flx_speed - _st_flx_speed;
-}
-void LinearWinddown::set_en_flux_speed(float flux_speed_val) {
-	_en_flx_speed = flux_speed_val;
-	_flux_val_slope = _en_flx_speed - _st_flx_speed;
+void LinearWinddown::set_en_voltage(float voltage) {
+	_en_voltage = voltage;
+	_volt_slope = _en_voltage - _st_voltage;
 }
 
 LinearWinddown::LinearWinddown(
 	float period,
-	float start_amplitude, float start_flxSpeed_val,
-	float end_amplitude,   float end_flxSpeed_val,
-	FluxSpeed_t flux_speed_type
+	float start_voltage,
+	float end_voltage
 ) : Winddown(period)
-	, _st_amplitude(start_amplitude)
-	, _en_amplitude(end_amplitude)
-	, _amp_slope(_en_amplitude - _st_amplitude)
-	, _st_flx_speed(start_flxSpeed_val)
-	, _en_flx_speed(end_flxSpeed_val)
-	, _flux_val_slope(_en_flx_speed - _st_flx_speed)
-	, _speed_type(flux_speed_type)
+	, _st_voltage(start_voltage)
+	, _en_voltage(end_voltage)
+	, _volt_slope(_en_voltage - _st_voltage)
 { }
