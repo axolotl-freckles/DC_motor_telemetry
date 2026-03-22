@@ -11,21 +11,38 @@
 
 #include "tasks.hpp"
 
+#include "esp_log.h"
+#include "esp_timer.h"
+
 #include "controllers/pid_controller.hpp"
 
 using namespace task;
 using namespace task::controller;
 
+const char LOG_TAG[] = "controller";
+
 constexpr TickType_t CONTROLLER_TICK_TIME_ms = 2000;
+constexpr int64_t    IDLE_TIME_us            = 3000000;
+constexpr int64_t    WINDUP_PERIOD_us        = 6000000;
+constexpr int64_t    CONTROL_PERIOD_us       = 6000000;
+constexpr int64_t    WINDOWN_PERIOD_us       = 6000000;
 
 static volatile EventGroupHandle_t controller_state_event_group_h = nullptr;
 
-static void handle_state(EventBits_t &current_state, Controller *controller);
-static void handle_error(EventBits_t &current_state, Controller *controller);
+struct StateStruct_t {
+	EventBits_t *current_state;
+	Controller  *controller;
+	float       *setpoint;
+	StateSwitcher<ControllerState_e> *transition_handler;
+};
 
-static void control_loop(Controller *controller);
-static void windup_loop(Controller *controller);
-static void windown_loop(Controller *controller);
+static void handle_state(const StateStruct_t &state);
+static void handle_error(const StateStruct_t &state);
+
+static void idle_loop   (const StateStruct_t &state);
+static void control_loop(const StateStruct_t &state);
+static void windup_loop (const StateStruct_t &state);
+static void windown_loop(const StateStruct_t &state);
 
 void task::controller_task(void *args) {
 	static StaticEventGroup_t controller_state_event_group;
@@ -33,10 +50,16 @@ void task::controller_task(void *args) {
 	PID         *controller         = nullptr;
 	EventBits_t  current_state      = ControllerState_e::IDLE;
 	float        setpoint           = 20.0f;
+	StateSwitcher<ControllerState_e> *transition_handler = nullptr;
 
 	controller_state_event_group_h = xEventGroupCreateStatic(
 		&controller_state_event_group
 	);
+	transition_handler = new StateSwitcher<ControllerState_e>(
+		controller_state_event_group_h,
+		~ControllerState_e::ERROR
+	);
+	transition_handler->update_state(ControllerState_e::IDLE);
 
 	std::function<float ()> error_func = [&setpoint] () -> float {
 		return 0.0f - setpoint;
@@ -45,14 +68,21 @@ void task::controller_task(void *args) {
 	controller = new PID(error_func, 3.0f, 2.0f, 1.0f);
 	controller->set_integrator_saturators(10.0);
 
+	StateStruct_t state = {
+		.current_state      = &current_state,
+		.controller         =  controller,
+		.setpoint           = &setpoint,
+		.transition_handler =  transition_handler
+	};
+
 	while (true) {
 		current_state = xEventGroupGetBits(controller_state_event_group_h);
 
 		if (current_state & ControllerState_e::ERROR) {
-			handle_error(current_state, controller);
+			handle_error(state);
 		}
 		else {
-			handle_state(current_state, controller);
+			handle_state(state);
 		}
 
 		(void)xTaskDelayUntil(
@@ -62,31 +92,84 @@ void task::controller_task(void *args) {
 	}
 }
 
-void handle_state(EventBits_t &current_state, Controller *controller) {
-	switch (current_state) {
+void handle_state(const StateStruct_t &state) {
+	switch (*state.current_state) {
 		case ControllerState_e::IDLE:
+			idle_loop   (state);
 			break;
 		case ControllerState_e::CONTROL:
-			control_loop(controller);
+			control_loop(state);
 			break;
 		case ControllerState_e::WINDUP:
+			windup_loop (state);
 			break;
 		case ControllerState_e::WINDOWN:
+			windown_loop(state);
 			break;
 		default:
 			break;
 	}
 }
 
-void handle_error(EventBits_t &current_state, Controller *controller) {
-	EventBits_t error_state = current_state & ~(ControllerState_e::ERROR);
+void handle_error(const StateStruct_t &state) {
+	EventBits_t error_state =   *state.current_state
+	                          & ~(ControllerState_e::ERROR);
 
 	// Handle error
 }
 
-void control_loop(Controller *controller) {
-	float control_signal = 0.0f;
-	controller->loop();
+void idle_loop   (const StateStruct_t &state) {
+	ESP_LOGI(LOG_TAG, "Idling");
+	int64_t curr_time = esp_timer_get_time();
+	if (   curr_time < WINDUP_PERIOD_us
+		&& curr_time > IDLE_TIME_us
+	) {
+		state.transition_handler->update_state(ControllerState_e::WINDUP);
+	}
+}
+void control_loop(const StateStruct_t &state) {
+	static int64_t start_time = 0;
+	int64_t curr_time  = esp_timer_get_time();
 
-	control_signal = controller->get_control_point().voltage;
+	if (!start_time) {
+		start_time = curr_time;
+	}
+	else if ( curr_time > start_time+CONTROL_PERIOD_us ) {
+		state.transition_handler->update_state(ControllerState_e::WINDOWN);
+	}
+
+	float control_signal = 0.0f;
+	state.controller->loop();
+
+	control_signal = state.controller->get_control_point().voltage;
+	ESP_LOGI(LOG_TAG, "Control point is: %.3e", control_signal);
+	ESP_LOGI(LOG_TAG, "Setpoint is     : %.3e", *state.setpoint);
+}
+void windup_loop (const StateStruct_t &state) {
+	static int64_t start_time = 0;
+	int64_t curr_time  = esp_timer_get_time();
+
+	if (!start_time) {
+		start_time = curr_time;
+	}
+	else if ( curr_time > start_time+WINDUP_PERIOD_us ) {
+		state.transition_handler->update_state(ControllerState_e::CONTROL);
+	}
+
+	*(state.setpoint) += 3.0f;
+	ESP_LOGI(LOG_TAG, "Windup setpoint: %.3e", *state.setpoint);
+}
+void windown_loop(const StateStruct_t &state) {
+	static int64_t start_time = 0;
+	int64_t curr_time  = esp_timer_get_time();
+
+	if (!start_time) {
+		start_time = curr_time;
+	}
+	else if ( curr_time > start_time+WINDOWN_PERIOD_us ) {
+		state.transition_handler->update_state(ControllerState_e::IDLE);
+	}
+
+	*(state.setpoint) -= 3.0f;
+	ESP_LOGI(LOG_TAG, "Windown setpoint: %.3e", *state.setpoint);
 }
