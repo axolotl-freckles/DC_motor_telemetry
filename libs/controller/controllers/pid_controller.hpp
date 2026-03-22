@@ -23,6 +23,11 @@ public:
 	void setup() override;
 	void loop()  override;
 
+	inline void set_integrator_saturators(float limit) {
+		_integrator.saturatorMax() =  std::abs(limit);
+		_integrator.saturatorMin() = -std::abs(limit);
+	}
+
 private:
 	Integrator _integrator;
 	Derivator  _derivator;
