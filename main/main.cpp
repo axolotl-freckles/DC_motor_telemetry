@@ -1,24 +1,22 @@
 #include <stdio.h>
-#include <functional>
 
 #include "freertos/FreeRTOS.h"
 
-#include "controller.hpp"
-#include "controllers/pid_controller.hpp"
-#include "filters.hpp"
-
-float err_func() {
-	return 5.0f;
-}
+#include "buckboost.hpp"
 
 extern "C" void app_main(void)
 {
-	Filter     * const test_filter     = new LowPassRC(0.002f, 0.01);
-	Controller * const test_controller = new PID(err_func, 3.0f, 2.0f, 1.0f);
-
-	test_controller->setup();
+	// BuckBoost test
+	BuckBoost bb(18, 21, 12.0f);
+	bb.init();
+	bb.setTargetVoltage(8.0f);
 
 	while (true) {
-		vTaskDelay(100 / portTICK_PERIOD_MS);
+		vTaskDelay(3000 / portTICK_PERIOD_MS);
+		bb.setTargetVoltage(12.0f);
+		vTaskDelay(3000 / portTICK_PERIOD_MS);
+		bb.setTargetVoltage(24.0f);
+		vTaskDelay(3000 / portTICK_PERIOD_MS);
+		bb.setTargetVoltage(5.0f);
 	}
 }
