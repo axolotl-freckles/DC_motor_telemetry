@@ -30,10 +30,10 @@ constexpr int64_t    WINDOWN_PERIOD_us       = 6000000;
 static volatile EventGroupHandle_t controller_state_event_group_h = nullptr;
 
 struct StateStruct_t {
-	EventBits_t *current_state;
-	Controller  *controller;
-	float       *setpoint;
-	StateSwitcher<ControllerState_e> *transition_handler;
+	EventBits_t                      * current_state;
+	Controller                       * controller;
+	float                            * setpoint;
+	StateSwitcher<ControllerState_e> * transition_handler;
 };
 
 static void handle_state(const StateStruct_t &state);
@@ -52,9 +52,11 @@ void task::controller_task(void *args) {
 	float        setpoint           = 20.0f;
 	StateSwitcher<ControllerState_e> *transition_handler = nullptr;
 
-	controller_state_event_group_h = xEventGroupCreateStatic(
-		&controller_state_event_group
-	);
+	if ( !controller_state_event_group_h ) {
+		controller_state_event_group_h = xEventGroupCreateStatic(
+			&controller_state_event_group
+		);
+	}
 	transition_handler = new StateSwitcher<ControllerState_e>(
 		controller_state_event_group_h,
 		~ControllerState_e::ERROR

@@ -10,14 +10,19 @@
  */
 #pragma once
 
-#include "freertos/FreeRTOS.h"
-
 #include <functional>
+
+#include "esp_err.h"
+
+#include "freertos/FreeRTOS.h"
 
 namespace task {
 
 void encoder_task   (void* args);
 void controller_task(void* args);
+
+esp_err_t start_controller();
+esp_err_t stop_controller ();
 
 template <typename state_enum_t>
 class StateSwitcher {
@@ -63,6 +68,18 @@ namespace controller {
 		CONTROL = 0b1 <<  3,
 		ERROR   = 0b1 << 12
 	};
+
+	const StateSwitcher<ControllerState_e>& controller_switcher();
+}
+
+namespace encoder {
+	enum EncoderState_e : EventBits_t {
+		IDLE     = 0b1 << 0,
+		SAMPLING = 0b1 << 1,
+		ERROR    = 0b1 << 12
+	};
+
+	const StateSwitcher<EncoderState_e>& encoder_switcher();
 }
 
 }
