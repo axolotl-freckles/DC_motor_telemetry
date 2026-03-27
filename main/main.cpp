@@ -9,6 +9,7 @@
 #include "filters.hpp"
 
 #include "tasks.hpp"
+#include "controller_task.hpp"
 
 extern "C" void app_main(void)
 {
