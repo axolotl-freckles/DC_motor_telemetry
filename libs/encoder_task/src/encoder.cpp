@@ -16,8 +16,6 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 
-#include "controllers/pid_controller.hpp"
-
 using namespace task;
 using namespace task::encoder;
 
