@@ -89,8 +89,8 @@ static void controller_task_fn(void *args) {
 		.transition_handler =  transition_handler
 	};
 
-	*(interface_attr->_transition_handler            ) = transition_handler;
-	*(interface_attr->_controller                    ) = controller;
+	*(interface_attr->_transition_handler) = transition_handler;
+	*(interface_attr->_controller        ) = controller;
 
 	xEventGroupSetBits(controller_state_event_group_h, INIT_OK);
 
@@ -236,7 +236,7 @@ task::controller::ControllerTask::ControllerTask()
 		pdFALSE,
 		portMAX_DELAY
 	);
-	ESP_LOGI(LOG_TAG, "Controller task started!");
+	ESP_LOGI(LOG_TAG, "Task started!");
 }
 
 ControllerTask& task::controller::ControllerTask::get_instance() {

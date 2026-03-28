@@ -13,8 +13,6 @@
 
 namespace task{
 
-void encoder_task(void* args);
-
 namespace encoder {
 	enum EncoderState_e : EventBits_t {
 		IDLE     = 0b1 << 0,
@@ -22,7 +20,30 @@ namespace encoder {
 		ERROR    = 0b1 << 12
 	};
 
-	const StateSwitcher<EncoderState_e>& encoder_switcher();
+class EncoderTask {
+public:
+	struct config_params {
+		QueueHandle_t speed_qh;
+	};
+
+	static EncoderTask            & get_instance();
+	StateSwitcher<EncoderState_e> & get_switcher();
+
+	void set_params(const config_params& params);
+private:
+	/* Task management variables */
+	TaskHandle_t                   _frtos_task_h;
+	StaticEventGroup_t             _encoder_state_event_group;
+	EventGroupHandle_t             _encoder_state_event_group_h;
+	StateSwitcher<EncoderState_e> *_transition_handler;
+	/* Runtime variables */
+	/* Message interface variables */
+	QueueHandle_t                  _speed_qh;
+
+	EncoderTask();
+};
+
+
 }
 
 }

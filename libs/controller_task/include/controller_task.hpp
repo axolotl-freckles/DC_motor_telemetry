@@ -24,8 +24,6 @@ namespace controller {
 		ERROR   = 0b1 << 12
 	};
 
-	const StateSwitcher<ControllerState_e>& controller_switcher();
-
 class ControllerTask {
 public:
 	struct config_params {

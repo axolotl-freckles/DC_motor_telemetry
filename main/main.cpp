@@ -10,12 +10,15 @@
 
 #include "tasks.hpp"
 #include "controller_task.hpp"
+#include "encoder_task.hpp"
 
 using task::controller::ControllerTask;
+using task::encoder::EncoderTask;
 
 extern "C" void app_main(void)
 {
 	ControllerTask controller_task = ControllerTask::get_instance();
+	EncoderTask    encoder_task    = EncoderTask::get_instance();
 
 	while (true) {
 		vTaskDelay(100 / portTICK_PERIOD_MS);
