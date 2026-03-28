@@ -41,6 +41,7 @@ public:
 private:
 	/* Task management variables */
 	TaskHandle_t                      _frtos_task_h;
+	StaticEventGroup_t                _controller_state_event_group;
 	EventGroupHandle_t                _controller_state_event_group_h;
 	StateSwitcher<ControllerState_e> *_transition_handler;
 	/* Runtime variables */

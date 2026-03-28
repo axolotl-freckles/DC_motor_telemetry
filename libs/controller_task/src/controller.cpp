@@ -27,7 +27,8 @@ constexpr int64_t    WINDUP_PERIOD_us        = 6000000;
 constexpr int64_t    CONTROL_PERIOD_us       = 6000000;
 constexpr int64_t    WINDOWN_PERIOD_us       = 6000000;
 
-static volatile EventGroupHandle_t controller_state_event_group_h = nullptr;
+constexpr EventBits_t INIT_OK    = 0b1 << 11;
+constexpr EventBits_t STATE_MASK = ~(INIT_OK | ControllerState_e::ERROR);
 
 struct StateStruct_t {
 	EventBits_t                      * current_state;
@@ -58,22 +59,19 @@ static void windup_loop (const StateStruct_t &state);
 static void windown_loop(const StateStruct_t &state);
 
 static void controller_task_fn(void *args) {
-	static StaticEventGroup_t controller_state_event_group;
-	TaskArgs_t  *interface_attr     = (TaskArgs_t*)args;
-	TickType_t   previous_wake_time = xTaskGetTickCount();
-	PID         *controller         = nullptr;
-	EventBits_t  current_state      = ControllerState_e::IDLE;
-	float        setpoint           = 20.0f;
+	EventGroupHandle_t  controller_state_event_group_h;
+	TaskArgs_t         *interface_attr     = (TaskArgs_t*)args;
+	TickType_t          previous_wake_time = xTaskGetTickCount();
+	PID                *controller         = nullptr;
+	EventBits_t         current_state      = ControllerState_e::IDLE;
+	float               setpoint           = 20.0f;
 	StateSwitcher<ControllerState_e> *transition_handler = nullptr;
 
-	if ( !controller_state_event_group_h ) {
-		controller_state_event_group_h = xEventGroupCreateStatic(
-			&controller_state_event_group
-		);
-	}
+	controller_state_event_group_h = *interface_attr->_controller_state_event_group_h;
+
 	transition_handler = new StateSwitcher<ControllerState_e>(
-		controller_state_event_group_h,
-		~ControllerState_e::ERROR
+		*interface_attr->_controller_state_event_group_h,
+		STATE_MASK
 	);
 	transition_handler->update_state(ControllerState_e::IDLE);
 
@@ -91,9 +89,10 @@ static void controller_task_fn(void *args) {
 		.transition_handler =  transition_handler
 	};
 
-	*(interface_attr->_controller_state_event_group_h) = controller_state_event_group_h;
 	*(interface_attr->_transition_handler            ) = transition_handler;
 	*(interface_attr->_controller                    ) = controller;
+
+	xEventGroupSetBits(controller_state_event_group_h, INIT_OK);
 
 	while (true) {
 		current_state = xEventGroupGetBits(controller_state_event_group_h);
@@ -113,7 +112,7 @@ static void controller_task_fn(void *args) {
 }
 
 void handle_state(const StateStruct_t &state) {
-	switch (*state.current_state) {
+	switch (*state.current_state & STATE_MASK) {
 		case ControllerState_e::IDLE:
 			idle_loop   (state);
 			break;
@@ -198,6 +197,7 @@ task::controller::ControllerTask::ControllerTask()
 :
 	/* Task management variables */
 	_frtos_task_h                  (),
+	_controller_state_event_group  (),
 	_controller_state_event_group_h(),
 	_transition_handler            (nullptr),
 	/* Runtime variables */
@@ -218,6 +218,9 @@ task::controller::ControllerTask::ControllerTask()
 		._speed_qh    = &_speed_qh,
 		._csignal_qh  = &_csignal_qh
 	};
+	_controller_state_event_group_h = xEventGroupCreateStatic(
+		&_controller_state_event_group
+	);
 	xTaskCreate(
 		controller_task_fn,
 		"controller_task",
@@ -226,6 +229,14 @@ task::controller::ControllerTask::ControllerTask()
 		3,
 		&_frtos_task_h
 	);
+	xEventGroupWaitBits(
+		_controller_state_event_group_h,
+		INIT_OK | ControllerState_e::ERROR,
+		pdFALSE,
+		pdFALSE,
+		portMAX_DELAY
+	);
+	ESP_LOGI(LOG_TAG, "Controller task started!");
 }
 
 ControllerTask& task::controller::ControllerTask::get_instance() {
