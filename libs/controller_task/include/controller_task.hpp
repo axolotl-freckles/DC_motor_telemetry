@@ -11,9 +11,9 @@
 
 #include "tasks.hpp"
 
-namespace task {
+#include "controller.hpp"
 
-void controller_task(void* args);
+namespace task {
 
 namespace controller {
 	enum ControllerState_e : EventBits_t {
@@ -26,19 +26,31 @@ namespace controller {
 
 	const StateSwitcher<ControllerState_e>& controller_switcher();
 
-class ControllerTaskInterface {
+class ControllerTask {
 public:
 	struct config_params {
-		QueueHandle_t setpoint;
-		QueueHandle_t speed;
+		QueueHandle_t setpoint_qh;
+		QueueHandle_t speed_qh;
+		QueueHandle_t control_signal_qh;
 	};
 
-	static ControllerTaskInterface                & get_instance();
-	static StateSwitcher<ControllerState_e> const & get_switcher();
+	static ControllerTask            & get_instance();
+	StateSwitcher<ControllerState_e> & get_switcher();
 
 	void set_params(const config_params& params);
 private:
-	ControllerTaskInterface();
+	/* Task management variables */
+	TaskHandle_t                      _frtos_task_h;
+	EventGroupHandle_t                _controller_state_event_group_h;
+	StateSwitcher<ControllerState_e> *_transition_handler;
+	/* Runtime variables */
+	Controller                       *_controller;
+	/* Message interface variables */
+	QueueHandle_t                     _setpoint_qh;
+	QueueHandle_t                     _speed_qh;
+	QueueHandle_t                     _csignal_qh;
+
+	ControllerTask();
 };
 
 }

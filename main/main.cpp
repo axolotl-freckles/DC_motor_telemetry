@@ -11,17 +11,11 @@
 #include "tasks.hpp"
 #include "controller_task.hpp"
 
+using task::controller::ControllerTask;
+
 extern "C" void app_main(void)
 {
-	TaskHandle_t controller_task_h = nullptr;
-	xTaskCreate(
-		task::controller_task,
-		"controller_task",
-		2048,
-		nullptr,
-		3,
-		&controller_task_h
-	);
+	ControllerTask controller_task = ControllerTask::get_instance();
 
 	while (true) {
 		vTaskDelay(100 / portTICK_PERIOD_MS);

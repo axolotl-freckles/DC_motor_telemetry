@@ -35,6 +35,19 @@ struct StateStruct_t {
 	float                            * setpoint;
 	StateSwitcher<ControllerState_e> * transition_handler;
 };
+struct TaskArgs_t {
+	/* Task management variables */
+	EventGroupHandle_t                *_controller_state_event_group_h;
+	StateSwitcher<ControllerState_e> **_transition_handler;
+	/* Runtime variables */
+	Controller                       **_controller;
+	/* Message interface variables */
+	QueueHandle_t                     *_setpoint_qh;
+	QueueHandle_t                     *_speed_qh;
+	QueueHandle_t                     *_csignal_qh;
+};
+
+static void controller_task_fn(void *args);
 
 static void handle_state(const StateStruct_t &state);
 static void handle_error(const StateStruct_t &state);
@@ -44,8 +57,9 @@ static void control_loop(const StateStruct_t &state);
 static void windup_loop (const StateStruct_t &state);
 static void windown_loop(const StateStruct_t &state);
 
-void task::controller_task(void *args) {
+static void controller_task_fn(void *args) {
 	static StaticEventGroup_t controller_state_event_group;
+	TaskArgs_t  *interface_attr     = (TaskArgs_t*)args;
 	TickType_t   previous_wake_time = xTaskGetTickCount();
 	PID         *controller         = nullptr;
 	EventBits_t  current_state      = ControllerState_e::IDLE;
@@ -76,6 +90,10 @@ void task::controller_task(void *args) {
 		.setpoint           = &setpoint,
 		.transition_handler =  transition_handler
 	};
+
+	*(interface_attr->_controller_state_event_group_h) = controller_state_event_group_h;
+	*(interface_attr->_transition_handler            ) = transition_handler;
+	*(interface_attr->_controller                    ) = controller;
 
 	while (true) {
 		current_state = xEventGroupGetBits(controller_state_event_group_h);
@@ -174,4 +192,49 @@ void windown_loop(const StateStruct_t &state) {
 
 	*(state.setpoint) -= 3.0f;
 	ESP_LOGI(LOG_TAG, "Windown setpoint: %.3e", *state.setpoint);
+}
+
+task::controller::ControllerTask::ControllerTask()
+:
+	/* Task management variables */
+	_frtos_task_h                  (),
+	_controller_state_event_group_h(),
+	_transition_handler            (nullptr),
+	/* Runtime variables */
+	_controller (nullptr),
+	/* Message interface variables */
+	_setpoint_qh(),
+	_speed_qh   (),
+	_csignal_qh ()
+{
+	TaskArgs_t args {
+		/* Task management variables */
+		._controller_state_event_group_h = &_controller_state_event_group_h,
+		._transition_handler             = &_transition_handler,
+		/* Runtime variables */
+		._controller = &_controller,
+		/* Message interface variables */
+		._setpoint_qh = &_setpoint_qh,
+		._speed_qh    = &_speed_qh,
+		._csignal_qh  = &_csignal_qh
+	};
+	xTaskCreate(
+		controller_task_fn,
+		"controller_task",
+		2048,
+		&args,
+		3,
+		&_frtos_task_h
+	);
+}
+
+ControllerTask& task::controller::ControllerTask::get_instance() {
+	static ControllerTask singleton_controller_task;
+	return singleton_controller_task;
+}
+
+void task::controller::ControllerTask::set_params(const config_params& params) {
+	_setpoint_qh = params.setpoint_qh;
+	_speed_qh    = params.speed_qh;
+	_csignal_qh  = params.control_signal_qh;
 }
