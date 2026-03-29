@@ -24,7 +24,7 @@ namespace controller {
 		ERROR   = 0b1 << 12
 	};
 
-class ControllerTask {
+class ControllerTask : public StateTask {
 public:
 	struct config_params {
 		QueueHandle_t setpoint_qh;
@@ -36,11 +36,14 @@ public:
 	StateSwitcher<ControllerState_e> & get_switcher();
 
 	void set_params(const config_params& params);
+
+	esp_err_t start() override;
+	esp_err_t stop()  override;
+
+	virtual ~ControllerTask();
 private:
 	/* Task management variables */
-	TaskHandle_t                      _frtos_task_h;
 	StaticEventGroup_t                _controller_state_event_group;
-	EventGroupHandle_t                _controller_state_event_group_h;
 	StateSwitcher<ControllerState_e> *_transition_handler;
 	/* Runtime variables */
 	Controller                       *_controller;

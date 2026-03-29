@@ -18,8 +18,17 @@
 
 namespace task {
 
-esp_err_t start_controller();
-esp_err_t stop_controller ();
+class StateTask {
+public:
+	virtual esp_err_t start() = 0;
+	virtual esp_err_t stop()  = 0;
+
+	StateTask();
+	virtual ~StateTask();
+protected:
+	TaskHandle_t       _frtos_task_h;
+	EventGroupHandle_t _task_state_event_group_h;
+};
 
 template <typename state_enum_t>
 class StateSwitcher {
