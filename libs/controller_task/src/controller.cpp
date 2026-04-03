@@ -74,8 +74,24 @@ static void windup_loop (const StateStruct_t &state);
 static void windown_loop(const StateStruct_t &state);
 
 static inline void control_tick(const StateStruct_t &state) {
-	float control_signal = 0.0f;
+	float control_signal       = 0.0f;
+	float speed                = 0.0f;
+	BaseType_t dequeue_success = pdTRUE;
 
+	dequeue_success = xQueuePeek(
+		queues.speed_qh,
+		&speed,
+		pdMS_TO_TICKS(50)
+	);
+
+	if (pdFALSE == dequeue_success) {
+		// TODO: Transition to error state
+		ESP_LOGE(
+			LOG_TAG,
+			"error receiving speed, using prev (%.3e)",
+			speed
+		);
+	}
 	state.controller->loop();
 	control_signal = state.controller->get_control_point().voltage;
 	ESP_LOGI(LOG_TAG, "Control point is: %.3e", control_signal);
@@ -228,7 +244,7 @@ void windown_loop(const StateStruct_t &state) {
 }
 
 bool TransHandler_ft::operator()(ControllerState_e from, ControllerState_e to) {
-	ESP_LOGI(LOG_TAG, "Transitioning from %X to %X", from, to);
+	ESP_LOGI(LOG_TAG, "Transitioning from %lX to %lX", from, to);
 	switch (to) {
 		case IDLE:
 			if ( WINDUP == from ) {

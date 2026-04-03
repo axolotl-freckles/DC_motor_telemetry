@@ -20,7 +20,7 @@ namespace encoder {
 		ERROR    = 0b1 << 12
 	};
 
-class EncoderTask {
+class EncoderTask : public StateTask {
 public:
 	struct config_params {
 		QueueHandle_t speed_qh;
@@ -30,11 +30,14 @@ public:
 	StateSwitcher<EncoderState_e> & get_switcher();
 
 	void set_params(const config_params& params);
+
+	esp_err_t start() override;
+	esp_err_t stop()  override;
+
+	virtual ~EncoderTask();
 private:
 	/* Task management variables */
-	TaskHandle_t                   _frtos_task_h;
 	StaticEventGroup_t             _encoder_state_event_group;
-	EventGroupHandle_t             _encoder_state_event_group_h;
 	StateSwitcher<EncoderState_e> *_transition_handler;
 	/* Runtime variables */
 	/* Message interface variables */

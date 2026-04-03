@@ -32,16 +32,22 @@ constexpr EventBits_t STATE_MASK = ~(INIT_OK | EncoderState_e::ERROR);
 struct StateStruct_t {
 	EventBits_t                   * current_state;
 	StateSwitcher<EncoderState_e> * transition_handler;
+	EventGroupHandle_t              task_state_event_group_h;
 };
 struct TaskArgs_t {
 	/* Task management variables */
-	TaskHandle_t                   * _frtos_task_h;
-	StaticEventGroup_t             * _encoder_state_event_group;
-	EventGroupHandle_t             * _encoder_state_event_group_h;
+	EventGroupHandle_t             * _task_state_event_group_h;
 	StateSwitcher<EncoderState_e> ** _transition_handler;
 	/* Runtime variables */
 	/* Message interface variables */
 	QueueHandle_t                  * _speed_qh;
+};
+struct QueueHandles_t {
+	QueueHandle_t speed_qh;
+};
+
+static QueueHandles_t queues = {
+	.speed_qh = nullptr
 };
 
 static void encoder_task_fn(void* args);
@@ -59,7 +65,7 @@ void encoder_task_fn(void *args) {
 	EventBits_t         current_state      = EncoderState_e::IDLE;
 	StateSwitcher<EncoderState_e> *transition_handler = nullptr;
 
-	encoder_state_event_group_h = *interface_attr->_encoder_state_event_group_h;
+	encoder_state_event_group_h = *interface_attr->_task_state_event_group_h;
 
 	transition_handler = new StateSwitcher<EncoderState_e>(
 		encoder_state_event_group_h,
@@ -68,8 +74,9 @@ void encoder_task_fn(void *args) {
 	transition_handler->update_state(EncoderState_e::IDLE);
 
 	StateStruct_t state = {
-		.current_state      = &current_state,
-		.transition_handler =  transition_handler
+		.current_state            = &current_state,
+		.transition_handler       =  transition_handler,
+		.task_state_event_group_h =  encoder_state_event_group_h
 	};
 
 	*(interface_attr->_transition_handler) = transition_handler;
@@ -111,50 +118,68 @@ void handle_error(const StateStruct_t &state) {
 }
 
 void idle_loop  (const StateStruct_t &state) {
-	int64_t curr_time = esp_timer_get_time();
-	if (   curr_time < SAMPLING_PERIOD_us
-		&& curr_time > IDLE_TIME_us
-	) {
-		state.transition_handler->update_state(EncoderState_e::SAMPLING);
-	}
+	(void)xEventGroupWaitBits(
+		state.task_state_event_group_h,
+		EncoderState_e::SAMPLING | EncoderState_e::ERROR,
+		pdFALSE,
+		pdFALSE,
+		portMAX_DELAY
+	);
 	return;
 }
 void sample_loop(const StateStruct_t &state) {
 	float speed_sample = 200.0f + std::rand()%100;
-	static int64_t start_time = 0;
-	int64_t curr_time  = esp_timer_get_time();
 
 	speed_sample /= 3.0f;
 	ESP_LOGI(LOG_TAG, "speed: %.3e", speed_sample);
 
-	if (!start_time) {
-		start_time = curr_time;
+	xQueueOverwrite(queues.speed_qh, &speed_sample);
+}
+
+esp_err_t task::encoder::EncoderTask::start() {
+	esp_err_t can_start     = ESP_OK;
+	bool      transition_ok = false;
+	if (!_speed_qh) {
+		ESP_LOGE(LOG_TAG, "No speed out queue!");
+		can_start = ESP_ERR_INVALID_STATE;
 	}
-	else if ( curr_time > start_time+SAMPLING_PERIOD_us ) {
-		state.transition_handler->update_state(EncoderState_e::IDLE);
+	if (!_transition_handler) {
+		can_start = ESP_ERR_INVALID_STATE;
 	}
+	if (ESP_OK == can_start && _transition_handler) {
+		transition_ok =
+			_transition_handler->update_state(EncoderState_e::SAMPLING);
+		if ( !transition_ok ) {
+			ESP_LOGE(LOG_TAG, "Start transition failed");
+			return ESP_ERR_NOT_ALLOWED;
+		}
+	}
+	return can_start;
+}
+esp_err_t task::encoder::EncoderTask::stop() {
+	bool transition_ok =
+		_transition_handler->update_state(EncoderState_e::IDLE);
+	return transition_ok? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 
 task::encoder::EncoderTask::EncoderTask()
-:
+:	StateTask()
 	/* Task management variables */
-	_frtos_task_h               (),
-	_encoder_state_event_group  (),
-	_encoder_state_event_group_h(),
-	_transition_handler         (nullptr),
+	, _encoder_state_event_group  ()
+	, _transition_handler         (nullptr)
 	/* Runtime variables */
 	/* Message interface variables */
-	_speed_qh                   ()
+	, _speed_qh                   ()
 {
 	TaskArgs_t args {
 		/* Task management variables */
-		._encoder_state_event_group_h = &_encoder_state_event_group_h,
-		._transition_handler          = &_transition_handler,
+		._task_state_event_group_h = &_task_state_event_group_h,
+		._transition_handler       = &_transition_handler,
 		/* Runtime variables */
 		/* Message interface variables */
-		._speed_qh    = &_speed_qh
+		._speed_qh                 = &_speed_qh
 	};
-	_encoder_state_event_group_h = xEventGroupCreateStatic(
+	_task_state_event_group_h = xEventGroupCreateStatic(
 		&_encoder_state_event_group
 	);
 	xTaskCreate(
@@ -166,7 +191,7 @@ task::encoder::EncoderTask::EncoderTask()
 		&_frtos_task_h
 	);
 	xEventGroupWaitBits(
-		_encoder_state_event_group_h,
+		_task_state_event_group_h,
 		INIT_OK | EncoderState_e::ERROR,
 		pdFALSE,
 		pdFALSE,
@@ -182,4 +207,8 @@ EncoderTask& task::encoder::EncoderTask::get_instance() {
 
 void task::encoder::EncoderTask::set_params(const config_params& params) {
 	_speed_qh = params.speed_qh;
+
+	queues.speed_qh = _speed_qh;
 }
+
+task::encoder::EncoderTask::~EncoderTask() {}
