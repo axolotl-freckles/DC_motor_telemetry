@@ -26,8 +26,8 @@ public:
 	StateTask();
 	virtual ~StateTask();
 protected:
-	TaskHandle_t       _frtos_task_h;
-	EventGroupHandle_t _task_state_event_group_h;
+	TaskHandle_t       _frtos_task_h             = nullptr;
+	EventGroupHandle_t _task_state_event_group_h = nullptr;
 };
 
 template <typename state_enum_t>
@@ -55,8 +55,8 @@ public:
 	bool update_state(state_enum_t new_state);
 
 private:
-	EventGroupHandle_t   _event_group_handle;
-	EventBits_t          _state_mask;
+	EventGroupHandle_t   _event_group_handle = nullptr;
+	EventBits_t          _state_mask         = 0;
 	state_enum_t         _old_state;
 	TransitionCallback_f _trans_callback;
 	TransErrCallback_f   _trans_err_callback;

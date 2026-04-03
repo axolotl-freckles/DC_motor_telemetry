@@ -38,10 +38,10 @@ public:
 private:
 	/* Task management variables */
 	StaticEventGroup_t             _encoder_state_event_group;
-	StateSwitcher<EncoderState_e> *_transition_handler;
+	StateSwitcher<EncoderState_e> *_transition_handler        = nullptr;
 	/* Runtime variables */
 	/* Message interface variables */
-	QueueHandle_t                  _speed_qh;
+	QueueHandle_t                  _speed_qh                  = nullptr;
 
 	EncoderTask();
 };

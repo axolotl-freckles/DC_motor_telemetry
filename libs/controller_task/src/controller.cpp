@@ -29,32 +29,32 @@ constexpr EventBits_t INIT_OK    = 0b1 << 11;
 constexpr EventBits_t STATE_MASK = ~(INIT_OK | ControllerState_e::ERROR);
 
 struct StateStruct_t {
-	EventBits_t                      * current_state;
-	Controller                       * controller;
-	float                            * setpoint;
-	StateSwitcher<ControllerState_e> * transition_handler;
-	EventGroupHandle_t                 task_state_event_group_h;
-	int64_t                          * windx_start;
+	EventBits_t                      * current_state             = nullptr;
+	Controller                       * controller                = nullptr;
+	float                            * setpoint                  = nullptr;
+	StateSwitcher<ControllerState_e> * transition_handler        = nullptr;
+	EventGroupHandle_t                 task_state_event_group_h  = nullptr;
+	int64_t                          * windx_start               = nullptr;
 };
 struct TaskArgs_t {
 	/* Task management variables */
-	EventGroupHandle_t                *_task_state_event_group_h;
-	StateSwitcher<ControllerState_e> **_transition_handler;
+	EventGroupHandle_t                *_task_state_event_group_h = nullptr;
+	StateSwitcher<ControllerState_e> **_transition_handler       = nullptr;
 	/* Runtime variables */
-	Controller                       **_controller;
+	Controller                       **_controller               = nullptr;
 	/* Message interface variables */
 };
 struct TransHandler_ft {
-	Controller *controller;
-	float      *setpoint;
-	int64_t    *windx_start;
+	Controller *controller  = nullptr;
+	float      *setpoint    = nullptr;
+	int64_t    *windx_start = nullptr;
 
 	bool operator () (ControllerState_e to, ControllerState_e from);
 };
 struct QueueHandles_t {
-	QueueHandle_t setpoint_qh;
-	QueueHandle_t speed_qh;
-	QueueHandle_t csignal_qh;
+	QueueHandle_t setpoint_qh = nullptr;
+	QueueHandle_t speed_qh    = nullptr;
+	QueueHandle_t csignal_qh  = nullptr;
 };
 
 static QueueHandles_t queues = {
@@ -100,6 +100,8 @@ static inline void control_tick(const StateStruct_t &state) {
 }
 
 static void controller_task_fn(void *args) {
+	char controller_mem_space[sizeof(PID)                             ] = {0};
+	char trans_hand_mem_space[sizeof(StateSwitcher<ControllerState_e>)] = {0};
 	EventGroupHandle_t  task_state_event_group_h;
 	TaskArgs_t         *interface_attr     = (TaskArgs_t*)args;
 	TickType_t          previous_wake_time = xTaskGetTickCount();
@@ -111,7 +113,7 @@ static void controller_task_fn(void *args) {
 
 	task_state_event_group_h = *interface_attr->_task_state_event_group_h;
 
-	transition_handler = new StateSwitcher<ControllerState_e>(
+	transition_handler = new (trans_hand_mem_space) StateSwitcher<ControllerState_e>(
 		*interface_attr->_task_state_event_group_h,
 		STATE_MASK
 	);
@@ -121,7 +123,7 @@ static void controller_task_fn(void *args) {
 		return 0.0f - setpoint;
 	};
 
-	controller = new PID(error_func, 3.0f, 2.0f, 1.0f);
+	controller = new (controller_mem_space) PID(error_func, 3.0f, 2.0f, 1.0f);
 	controller->set_integrator_saturators(10.0);
 
 	TransHandler_ft handle_transition = {

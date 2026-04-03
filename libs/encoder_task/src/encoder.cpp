@@ -30,20 +30,20 @@ constexpr EventBits_t INIT_OK    = 0b1 << 11;
 constexpr EventBits_t STATE_MASK = ~(INIT_OK | EncoderState_e::ERROR);
 
 struct StateStruct_t {
-	EventBits_t                   * current_state;
-	StateSwitcher<EncoderState_e> * transition_handler;
-	EventGroupHandle_t              task_state_event_group_h;
+	EventBits_t                   * current_state            = nullptr;
+	StateSwitcher<EncoderState_e> * transition_handler       = nullptr;
+	EventGroupHandle_t              task_state_event_group_h = nullptr;
 };
 struct TaskArgs_t {
 	/* Task management variables */
-	EventGroupHandle_t             * _task_state_event_group_h;
-	StateSwitcher<EncoderState_e> ** _transition_handler;
+	EventGroupHandle_t             * _task_state_event_group_h = nullptr;
+	StateSwitcher<EncoderState_e> ** _transition_handler       = nullptr;
 	/* Runtime variables */
 	/* Message interface variables */
-	QueueHandle_t                  * _speed_qh;
+	QueueHandle_t                  * _speed_qh                 = nullptr;
 };
 struct QueueHandles_t {
-	QueueHandle_t speed_qh;
+	QueueHandle_t speed_qh = nullptr;
 };
 
 static QueueHandles_t queues = {
@@ -59,6 +59,7 @@ static void idle_loop  (const StateStruct_t &state);
 static void sample_loop(const StateStruct_t &state);
 
 void encoder_task_fn(void *args) {
+	char trans_hand_mem_space[sizeof(StateSwitcher<EncoderState_e>)] = {0};
 	EventGroupHandle_t  encoder_state_event_group_h;
 	TaskArgs_t         *interface_attr     = (TaskArgs_t*)args;
 	TickType_t          previous_wake_time = xTaskGetTickCount();
@@ -67,7 +68,7 @@ void encoder_task_fn(void *args) {
 
 	encoder_state_event_group_h = *interface_attr->_task_state_event_group_h;
 
-	transition_handler = new StateSwitcher<EncoderState_e>(
+	transition_handler = new (trans_hand_mem_space) StateSwitcher<EncoderState_e>(
 		encoder_state_event_group_h,
 		STATE_MASK
 	);
