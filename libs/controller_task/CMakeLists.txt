@@ -7,4 +7,5 @@ idf_component_register (
 		"esp_timer"
 		"libtask"
 		"controller"
+		"encoder_task"
 	)

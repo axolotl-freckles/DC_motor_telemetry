@@ -34,6 +34,8 @@ public:
 	esp_err_t start() override;
 	esp_err_t stop()  override;
 
+	EventBits_t get_state() override;
+
 	virtual ~EncoderTask();
 private:
 	/* Task management variables */

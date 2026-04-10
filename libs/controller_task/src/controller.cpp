@@ -15,6 +15,7 @@
 #include "esp_timer.h"
 
 #include "controllers/pid_controller.hpp"
+#include "encoder_task.hpp"
 
 using namespace task;
 using namespace task::controller;
@@ -25,8 +26,9 @@ constexpr TickType_t CONTROLLER_TICK_TIME_ms = 2000;
 constexpr int64_t    WINDUP_PERIOD_us        = 6000000;
 constexpr int64_t    WINDOWN_PERIOD_us       = 6000000;
 
-constexpr EventBits_t INIT_OK    = 0b1 << 11;
-constexpr EventBits_t STATE_MASK = ~(INIT_OK | ControllerState_e::ERROR);
+constexpr EventBits_t INIT_OK           = 0b1 << 11;
+constexpr EventBits_t STATE_MASK        = ~(INIT_OK | ControllerState_e::ERROR);
+constexpr EventBits_t PUBLIC_STATE_MASK = ~(INIT_OK);
 
 struct StateStruct_t {
 	EventBits_t                      * current_state             = nullptr;
@@ -49,7 +51,7 @@ struct TransHandler_ft {
 	float      *setpoint    = nullptr;
 	int64_t    *windx_start = nullptr;
 
-	bool operator () (ControllerState_e to, ControllerState_e from);
+	bool operator () (ControllerState_e from, ControllerState_e to);
 };
 struct QueueHandles_t {
 	QueueHandle_t setpoint_qh = nullptr;
@@ -73,30 +75,25 @@ static void control_loop(const StateStruct_t &state);
 static void windup_loop (const StateStruct_t &state);
 static void windown_loop(const StateStruct_t &state);
 
-static inline void control_tick(const StateStruct_t &state) {
-	float control_signal       = 0.0f;
-	float speed                = 0.0f;
-	BaseType_t dequeue_success = pdTRUE;
+static inline void control_tick(const StateStruct_t &state);
 
-	dequeue_success = xQueuePeek(
-		queues.speed_qh,
-		&speed,
-		pdMS_TO_TICKS(50)
-	);
-
-	if (pdFALSE == dequeue_success) {
-		// TODO: Transition to error state
-		ESP_LOGE(
-			LOG_TAG,
-			"error receiving speed, using prev (%.3e)",
-			speed
-		);
+static inline const char * state_to_str(EventBits_t state_bits) {
+	if (state_bits & ControllerState_e::ERROR) {
+		return "ERROR";
 	}
-	state.controller->loop();
-	control_signal = state.controller->get_control_point().voltage;
-	ESP_LOGI(LOG_TAG, "Control point is: %.3e", control_signal);
-	ESP_LOGI(LOG_TAG, "Setpoint is     : %.3e", *state.setpoint);
-	xQueueOverwrite(queues.csignal_qh, &control_signal);
+	switch (state_bits & STATE_MASK)
+	{
+	case ControllerState_e::IDLE:
+		return "IDLE";
+	case ControllerState_e::WINDUP:
+		return "WINDUP";
+	case ControllerState_e::WINDOWN:
+		return "WINDOWN";
+	case ControllerState_e::CONTROL:
+		return "CONTROL";
+	default:
+		return "UNKNOWN";
+	}
 }
 
 static void controller_task_fn(void *args) {
@@ -190,8 +187,37 @@ void handle_error(const StateStruct_t &state) {
 	// Handle error
 }
 
+inline void control_tick(const StateStruct_t &state) {
+	float control_signal       = 0.0f;
+	float speed                = 0.0f;
+	BaseType_t dequeue_success = pdTRUE;
+
+	dequeue_success = xQueuePeek(
+		queues.speed_qh,
+		&speed,
+		pdMS_TO_TICKS(50)
+	);
+
+	if (pdFALSE == dequeue_success) {
+		// TODO: Transition to error state
+		ESP_LOGE(
+			LOG_TAG,
+			"error receiving speed, using prev (%.3e)",
+			speed
+		);
+	}
+	state.controller->loop();
+	control_signal = state.controller->get_control_point().voltage;
+	ESP_LOGI(LOG_TAG, "Control point is: %.3e", control_signal);
+	ESP_LOGI(LOG_TAG, "Setpoint is     : %.3e", *state.setpoint);
+	xQueueOverwrite(queues.csignal_qh, &control_signal);
+}
+
 void idle_loop   (const StateStruct_t &state) {
 	ESP_LOGI(LOG_TAG, "Idling");
+	if ( ESP_OK != encoder::EncoderTask::get_instance().stop() ) {
+		ESP_LOGE(LOG_TAG, "Error while shutting down encoder");
+	}
 	(void)xEventGroupWaitBits(
 		state.task_state_event_group_h,
 		ControllerState_e::WINDUP | ControllerState_e::ERROR,
@@ -199,6 +225,13 @@ void idle_loop   (const StateStruct_t &state) {
 		pdFALSE,
 		portMAX_DELAY
 	);
+	if ( ESP_OK != encoder::EncoderTask::get_instance().start() ) {
+		ESP_LOGE(LOG_TAG, "Error starting encoder");
+		xEventGroupSetBits(
+			state.task_state_event_group_h,
+			ControllerState_e::ERROR
+		);
+	}
 	state.controller->setup();
 	*state.windx_start = esp_timer_get_time();
 }
@@ -245,43 +278,52 @@ void windown_loop(const StateStruct_t &state) {
 	control_tick(state);
 }
 
+/* ###################################################### TRANSITION HANDLING */
+
 bool TransHandler_ft::operator()(ControllerState_e from, ControllerState_e to) {
-	ESP_LOGI(LOG_TAG, "Transitioning from %lX to %lX", from, to);
+	ESP_LOGI(
+		LOG_TAG,
+		"Transitioning from %s to %s",
+		state_to_str(from),
+		state_to_str(to)
+	);
 	switch (to) {
-		case IDLE:
-			if ( WINDUP == from ) {
-				return false;
-			}
-			break;
-		case WINDUP:
-			if ( WINDOWN == from ) {
-				return false;
-			}
-			break;
-		case WINDOWN:
-			if (IDLE == from) {
-				return false;
-			}
-			*windx_start = esp_timer_get_time();
-			break;
-		default:
-			break;
+	case IDLE:
+		if ( WINDUP == from ) {
+			return false;
+		}
+		break;
+	case WINDUP:
+		if ( WINDOWN == from ) {
+			return false;
+		}
+		break;
+	case WINDOWN:
+		if (IDLE == from) {
+			return false;
+		}
+		*windx_start = esp_timer_get_time();
+		break;
+	default:
+		break;
 	}
 	return true;
 }
 
+/* ########################################################## PUBLIC TASK API */
+
 esp_err_t task::controller::ControllerTask::start() {
 	esp_err_t can_start     = ESP_OK;
 	bool      transition_ok = false;
-	if (!_setpoint_qh) {
+	if (!queues.setpoint_qh) {
 		ESP_LOGE(LOG_TAG, "No setpoint out queue!");
 		can_start = ESP_ERR_INVALID_STATE;
 	}
-	if (!_speed_qh) {
+	if (!queues.speed_qh) {
 		ESP_LOGE(LOG_TAG, "No speed in queue!");
 		can_start = ESP_ERR_INVALID_STATE;
 	}
-	if (!_csignal_qh) {
+	if (!queues.csignal_qh) {
 		ESP_LOGE(LOG_TAG, "No control signal out queue!");
 		can_start = ESP_ERR_INVALID_STATE;
 	}
@@ -299,6 +341,14 @@ esp_err_t task::controller::ControllerTask::start() {
 	return can_start;
 }
 esp_err_t task::controller::ControllerTask::stop() {
+	if (get_state() & ControllerState_e::IDLE) {
+		ESP_LOGW(LOG_TAG, "Already stopped!");
+		return ESP_OK;
+	}
+	if (get_state() & ControllerState_e::WINDOWN) {
+		ESP_LOGE(LOG_TAG, "On windown!");
+		return ESP_ERR_INVALID_STATE;
+	}
 	if (_transition_handler) {
 		_transition_handler->update_state(ControllerState_e::WINDOWN);
 	}
@@ -325,7 +375,6 @@ task::controller::ControllerTask::ControllerTask()
 		._controller = &_controller,
 		/* Message interface variables */
 	};
-	ESP_LOGI(LOG_TAG, "csignal container ptr: %p", &_csignal_qh);
 	_task_state_event_group_h = xEventGroupCreateStatic(
 		&_controller_state_event_group
 	);
@@ -360,6 +409,10 @@ void task::controller::ControllerTask::set_params(const config_params& params) {
 	queues.setpoint_qh = _setpoint_qh;
 	queues.speed_qh    = _speed_qh;
 	queues.csignal_qh  = _csignal_qh;
+}
+
+EventBits_t task::controller::ControllerTask::get_state() {
+	return xEventGroupGetBits(_task_state_event_group_h) & PUBLIC_STATE_MASK;
 }
 
 task::controller::ControllerTask::~ControllerTask() {}

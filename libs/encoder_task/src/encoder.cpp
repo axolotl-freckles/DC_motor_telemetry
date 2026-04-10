@@ -26,8 +26,9 @@ constexpr TickType_t ENCODER_TICK_TIME_ms = 2000;
 constexpr int64_t IDLE_TIME_us       = 3000000;
 constexpr int64_t SAMPLING_PERIOD_us = 6000000;
 
-constexpr EventBits_t INIT_OK    = 0b1 << 11;
-constexpr EventBits_t STATE_MASK = ~(INIT_OK | EncoderState_e::ERROR);
+constexpr EventBits_t INIT_OK           = 0b1 << 11;
+constexpr EventBits_t STATE_MASK        = ~(INIT_OK | EncoderState_e::ERROR);
+constexpr EventBits_t PUBLIC_STATE_MASK = ~(INIT_OK);
 
 struct StateStruct_t {
 	EventBits_t                   * current_state            = nullptr;
@@ -40,7 +41,6 @@ struct TaskArgs_t {
 	StateSwitcher<EncoderState_e> ** _transition_handler       = nullptr;
 	/* Runtime variables */
 	/* Message interface variables */
-	QueueHandle_t                  * _speed_qh                 = nullptr;
 };
 struct QueueHandles_t {
 	QueueHandle_t speed_qh = nullptr;
@@ -50,6 +50,21 @@ static QueueHandles_t queues = {
 	.speed_qh = nullptr
 };
 
+static inline const char * state_to_str(EventBits_t state_bits) {
+	if (state_bits & EncoderState_e::ERROR) {
+		return "ERROR";
+	}
+	switch (state_bits & STATE_MASK)
+	{
+	case EncoderState_e::IDLE:
+		return "IDLE";
+	case EncoderState_e::SAMPLING:
+		return "SAMPLING";
+	default:
+		return "UNKNOWN";
+	}
+}
+
 static void encoder_task_fn(void* args);
 
 static void handle_state(const StateStruct_t &state);
@@ -57,6 +72,8 @@ static void handle_error(const StateStruct_t &state);
 
 static void idle_loop  (const StateStruct_t &state);
 static void sample_loop(const StateStruct_t &state);
+
+static bool handle_transition(EncoderState_e from, EncoderState_e to);
 
 void encoder_task_fn(void *args) {
 	char trans_hand_mem_space[sizeof(StateSwitcher<EncoderState_e>)] = {0};
@@ -81,6 +98,8 @@ void encoder_task_fn(void *args) {
 	};
 
 	*(interface_attr->_transition_handler) = transition_handler;
+
+	transition_handler->set_trans_callback(handle_transition);
 
 	xEventGroupSetBits(encoder_state_event_group_h, INIT_OK);
 
@@ -119,6 +138,7 @@ void handle_error(const StateStruct_t &state) {
 }
 
 void idle_loop  (const StateStruct_t &state) {
+	ESP_LOGI(LOG_TAG, "Idling");
 	(void)xEventGroupWaitBits(
 		state.task_state_event_group_h,
 		EncoderState_e::SAMPLING | EncoderState_e::ERROR,
@@ -137,10 +157,24 @@ void sample_loop(const StateStruct_t &state) {
 	xQueueOverwrite(queues.speed_qh, &speed_sample);
 }
 
+/* ###################################################### TRANSITION HANDLING */
+
+bool handle_transition(EncoderState_e from, EncoderState_e to) {
+	ESP_LOGI(
+		LOG_TAG,
+		"Transitioning from %s to %s",
+		state_to_str(from),
+		state_to_str(to)
+	);
+	return true;
+}
+
+/* ########################################################## PUBLIC TASK API */
+
 esp_err_t task::encoder::EncoderTask::start() {
 	esp_err_t can_start     = ESP_OK;
 	bool      transition_ok = false;
-	if (!_speed_qh) {
+	if (!queues.speed_qh) {
 		ESP_LOGE(LOG_TAG, "No speed out queue!");
 		can_start = ESP_ERR_INVALID_STATE;
 	}
@@ -178,7 +212,6 @@ task::encoder::EncoderTask::EncoderTask()
 		._transition_handler       = &_transition_handler,
 		/* Runtime variables */
 		/* Message interface variables */
-		._speed_qh                 = &_speed_qh
 	};
 	_task_state_event_group_h = xEventGroupCreateStatic(
 		&_encoder_state_event_group
@@ -210,6 +243,10 @@ void task::encoder::EncoderTask::set_params(const config_params& params) {
 	_speed_qh = params.speed_qh;
 
 	queues.speed_qh = _speed_qh;
+}
+
+EventBits_t task::encoder::EncoderTask::get_state() {
+	return xEventGroupGetBits(_task_state_event_group_h) & PUBLIC_STATE_MASK;
 }
 
 task::encoder::EncoderTask::~EncoderTask() {}

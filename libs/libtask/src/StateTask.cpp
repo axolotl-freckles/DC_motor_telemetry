@@ -23,3 +23,7 @@ task::StateTask::~StateTask() {
 		_frtos_task_h = nullptr;
 	}
 }
+
+EventBits_t task::StateTask::get_state() {
+	return xEventGroupGetBits(_task_state_event_group_h);
+}

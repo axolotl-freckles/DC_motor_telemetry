@@ -35,12 +35,10 @@ extern "C" void app_main(void)
 	encoder_task.set_params(encoder_config);
 
 	vTaskDelay(pdMS_TO_TICKS(3000));
-	encoder_task.start();
 	controller_task.start();
 
 	vTaskDelay(pdMS_TO_TICKS(12000));
 	controller_task.stop();
-	encoder_task.stop();
 
 	while (true) {
 		vTaskDelay(100 / portTICK_PERIOD_MS);
