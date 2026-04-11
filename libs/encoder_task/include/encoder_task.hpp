@@ -26,8 +26,7 @@ public:
 		QueueHandle_t speed_qh;
 	};
 
-	static EncoderTask            & get_instance();
-	StateSwitcher<EncoderState_e> & get_switcher();
+	static EncoderTask& get_instance();
 
 	void set_params(const config_params& params);
 

@@ -13,6 +13,7 @@
 #include "encoder_task.hpp"
 
 using task::controller::ControllerTask;
+using task::controller::ControllerState_e;
 using task::encoder::EncoderTask;
 
 extern "C" void app_main(void)
@@ -36,6 +37,7 @@ extern "C" void app_main(void)
 
 	vTaskDelay(pdMS_TO_TICKS(3000));
 	controller_task.start();
+	controller_task.wait_state(ControllerState_e::CONTROL, portMAX_DELAY);
 
 	vTaskDelay(pdMS_TO_TICKS(12000));
 	controller_task.stop();

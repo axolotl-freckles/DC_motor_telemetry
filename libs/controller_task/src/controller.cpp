@@ -25,10 +25,12 @@ const char LOG_TAG[] = "controller";
 constexpr TickType_t CONTROLLER_TICK_TIME_ms = 2000;
 constexpr int64_t    WINDUP_PERIOD_us        = 6000000;
 constexpr int64_t    WINDOWN_PERIOD_us       = 6000000;
+constexpr int64_t    STOP_TIMEOUT_us         = CONTROLLER_TICK_TIME_ms*1000LL;
 
 constexpr EventBits_t INIT_OK           = 0b1 << 11;
 constexpr EventBits_t STATE_MASK        = ~(INIT_OK | ControllerState_e::ERROR);
 constexpr EventBits_t PUBLIC_STATE_MASK = ~(INIT_OK);
+constexpr EventBits_t CLEAR_BITS_MASK   = ~(0xff000000UL);
 
 struct StateStruct_t {
 	EventBits_t                      * current_state             = nullptr;
@@ -41,6 +43,7 @@ struct StateStruct_t {
 struct TaskArgs_t {
 	/* Task management variables */
 	EventGroupHandle_t                *_task_state_event_group_h = nullptr;
+	EventGroupHandle_t                *_controller_sync_event_h  = nullptr;
 	StateSwitcher<ControllerState_e> **_transition_handler       = nullptr;
 	/* Runtime variables */
 	Controller                       **_controller               = nullptr;
@@ -100,6 +103,7 @@ static void controller_task_fn(void *args) {
 	char controller_mem_space[sizeof(PID)                             ] = {0};
 	char trans_hand_mem_space[sizeof(StateSwitcher<ControllerState_e>)] = {0};
 	EventGroupHandle_t  task_state_event_group_h;
+	EventGroupHandle_t  controller_sync_event_h;
 	TaskArgs_t         *interface_attr     = (TaskArgs_t*)args;
 	TickType_t          previous_wake_time = xTaskGetTickCount();
 	PID                *controller         = nullptr;
@@ -109,6 +113,7 @@ static void controller_task_fn(void *args) {
 	StateSwitcher<ControllerState_e> *transition_handler = nullptr;
 
 	task_state_event_group_h = *interface_attr->_task_state_event_group_h;
+	controller_sync_event_h  = *interface_attr->_controller_sync_event_h;
 
 	transition_handler = new (trans_hand_mem_space) StateSwitcher<ControllerState_e>(
 		*interface_attr->_task_state_event_group_h,
@@ -146,6 +151,8 @@ static void controller_task_fn(void *args) {
 
 	while (true) {
 		current_state = xEventGroupGetBits(task_state_event_group_h);
+		(void)xEventGroupClearBits(controller_sync_event_h, CLEAR_BITS_MASK);
+		(void)xEventGroupSetBits  (controller_sync_event_h, current_state);
 
 		if (current_state & ControllerState_e::ERROR) {
 			handle_error(state);
@@ -310,11 +317,33 @@ bool TransHandler_ft::operator()(ControllerState_e from, ControllerState_e to) {
 	return true;
 }
 
+esp_err_t task::controller::ControllerTask::wait_sync() {
+	EventBits_t   current_signaled_state = xEventGroupGetBits(
+	                                       	_task_state_event_group_h
+	                                       );
+	EventBits_t   current_exec_state     = xEventGroupGetBits(
+	                                       	_controller_sync_event_group_h
+	                                       );
+	int64_t const trans_attempt_st       = esp_timer_get_time();
+	int64_t       trans_attempt_curr     = 0;
+
+	while (current_signaled_state != current_exec_state) {
+		trans_attempt_curr = esp_timer_get_time();
+		if (trans_attempt_curr - trans_attempt_st > STOP_TIMEOUT_us) {
+			return ESP_ERR_TIMEOUT;
+		}
+		current_signaled_state = xEventGroupGetBits(_task_state_event_group_h);
+		current_exec_state     = xEventGroupGetBits(_controller_sync_event_group_h);
+	}
+	return ESP_OK;
+}
+
 /* ########################################################## PUBLIC TASK API */
 
 esp_err_t task::controller::ControllerTask::start() {
 	esp_err_t can_start     = ESP_OK;
 	bool      transition_ok = false;
+
 	if (!queues.setpoint_qh) {
 		ESP_LOGE(LOG_TAG, "No setpoint out queue!");
 		can_start = ESP_ERR_INVALID_STATE;
@@ -330,6 +359,10 @@ esp_err_t task::controller::ControllerTask::start() {
 	if (!_transition_handler) {
 		can_start = ESP_ERR_INVALID_STATE;
 	}
+
+	if (ESP_OK != wait_sync() ) {
+		can_start = ESP_ERR_TIMEOUT;
+	}
 	if (ESP_OK == can_start && _transition_handler) {
 		transition_ok =
 			_transition_handler->update_state(ControllerState_e::WINDUP);
@@ -341,11 +374,20 @@ esp_err_t task::controller::ControllerTask::start() {
 	return can_start;
 }
 esp_err_t task::controller::ControllerTask::stop() {
-	if (get_state() & ControllerState_e::IDLE) {
+	EventBits_t   current_state = 0;
+
+	if (ESP_OK != wait_sync() ) {
+		return ESP_ERR_TIMEOUT;
+	}
+	current_state = get_state();
+	if (current_state & ControllerState_e::ERROR) {
+		return ESP_ERR_NOT_ALLOWED;
+	}
+	if (current_state & ControllerState_e::IDLE) {
 		ESP_LOGW(LOG_TAG, "Already stopped!");
 		return ESP_OK;
 	}
-	if (get_state() & ControllerState_e::WINDOWN) {
+	if (current_state & ControllerState_e::WINDOWN) {
 		ESP_LOGE(LOG_TAG, "On windown!");
 		return ESP_ERR_INVALID_STATE;
 	}
@@ -359,6 +401,8 @@ task::controller::ControllerTask::ControllerTask()
 :	StateTask()
 	/* Task management variables */
 	, _controller_state_event_group  ()
+	, _controller_sync_event_group   ()
+	, _controller_sync_event_group_h (nullptr)
 	, _transition_handler            (nullptr)
 	/* Runtime variables */
 	, _controller (nullptr)
@@ -370,12 +414,16 @@ task::controller::ControllerTask::ControllerTask()
 	TaskArgs_t args {
 		/* Task management variables */
 		._task_state_event_group_h = &_task_state_event_group_h,
+		._controller_sync_event_h  = &_controller_sync_event_group_h,
 		._transition_handler       = &_transition_handler,
 		/* Runtime variables */
 		._controller = &_controller,
 		/* Message interface variables */
 	};
 	_task_state_event_group_h = xEventGroupCreateStatic(
+		&_controller_state_event_group
+	);
+	_controller_sync_event_group_h = xEventGroupCreateStatic(
 		&_controller_state_event_group
 	);
 	xTaskCreate(
@@ -412,7 +460,40 @@ void task::controller::ControllerTask::set_params(const config_params& params) {
 }
 
 EventBits_t task::controller::ControllerTask::get_state() {
-	return xEventGroupGetBits(_task_state_event_group_h) & PUBLIC_STATE_MASK;
+	return xEventGroupGetBits(_controller_sync_event_group_h)
+	       & PUBLIC_STATE_MASK;
+}
+
+esp_err_t task::controller::ControllerTask::wait_state(
+	EventBits_t state, TickType_t timeout
+) {
+	EventBits_t obtained_status = 0;
+	obtained_status = xEventGroupWaitBits(
+		_controller_sync_event_group_h,
+		state | ControllerState_e::ERROR,
+		pdFALSE, pdFALSE,
+		timeout
+	);
+
+	if ( state & ControllerState_e::ERROR ) {
+		if ( obtained_status & ControllerState_e::ERROR ) {
+			return ESP_OK;
+		}
+		else {
+			return ESP_ERR_TIMEOUT;
+		}
+	}
+	else if ( obtained_status & ControllerState_e::ERROR ) {
+		return ESP_ERR_INVALID_RESPONSE;
+	}
+
+	state           &= PUBLIC_STATE_MASK;
+	obtained_status &= state;
+	if ( !(obtained_status ^ state) ) {
+		return ESP_ERR_TIMEOUT;
+	}
+
+	return ESP_OK;
 }
 
 task::controller::ControllerTask::~ControllerTask() {}

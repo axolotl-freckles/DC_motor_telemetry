@@ -27,3 +27,19 @@ task::StateTask::~StateTask() {
 EventBits_t task::StateTask::get_state() {
 	return xEventGroupGetBits(_task_state_event_group_h);
 }
+
+esp_err_t task::StateTask::wait_state(EventBits_t state, TickType_t timeout) {
+	EventBits_t obtained_status = 0;
+	obtained_status = xEventGroupWaitBits(
+		_task_state_event_group_h,
+		state,
+		pdFALSE, pdTRUE,
+		timeout
+	);
+
+	obtained_status &= state;
+	if ( !(obtained_status ^ state) ) {
+		return ESP_ERR_TIMEOUT;
+	}
+	return ESP_OK;
+}

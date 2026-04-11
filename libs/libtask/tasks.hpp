@@ -25,6 +25,8 @@ public:
 
 	virtual EventBits_t get_state();
 
+	virtual esp_err_t wait_state(EventBits_t state, TickType_t timeout);
+
 	StateTask();
 	virtual ~StateTask();
 protected:

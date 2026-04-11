@@ -32,8 +32,7 @@ public:
 		QueueHandle_t control_signal_qh;
 	};
 
-	static ControllerTask            & get_instance();
-	StateSwitcher<ControllerState_e> & get_switcher();
+	static ControllerTask& get_instance();
 
 	void set_params(const config_params& params);
 
@@ -41,11 +40,14 @@ public:
 	esp_err_t stop()  override;
 
 	EventBits_t get_state() override;
+	esp_err_t   wait_state(EventBits_t state, TickType_t timeout) override;
 
 	virtual ~ControllerTask();
 private:
 	/* Task management variables */
 	StaticEventGroup_t                _controller_state_event_group;
+	StaticEventGroup_t                _controller_sync_event_group;
+	EventGroupHandle_t                _controller_sync_event_group_h;
 	StateSwitcher<ControllerState_e> *_transition_handler = nullptr;
 	/* Runtime variables */
 	Controller                       *_controller         = nullptr;
@@ -55,6 +57,8 @@ private:
 	QueueHandle_t                     _csignal_qh         = nullptr;
 
 	ControllerTask();
+
+	esp_err_t wait_sync();
 };
 
 }
