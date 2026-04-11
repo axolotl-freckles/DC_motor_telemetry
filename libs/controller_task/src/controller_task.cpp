@@ -25,6 +25,7 @@ const char LOG_TAG[] = "controller";
 constexpr TickType_t CONTROLLER_TICK_TIME_ms = 2000;
 constexpr int64_t    WINDUP_PERIOD_us        = 6000000;
 constexpr int64_t    WINDOWN_PERIOD_us       = 6000000;
+constexpr int64_t    WATCHDOG_THRESH_us      = 1000;
 constexpr int64_t    STOP_TIMEOUT_us         = CONTROLLER_TICK_TIME_ms*1000LL;
 
 constexpr EventBits_t INIT_OK           = 0b1 << 11;
@@ -331,6 +332,9 @@ esp_err_t task::controller::ControllerTask::wait_sync() {
 		trans_attempt_curr = esp_timer_get_time();
 		if (trans_attempt_curr - trans_attempt_st > STOP_TIMEOUT_us) {
 			return ESP_ERR_TIMEOUT;
+		}
+		if (trans_attempt_curr - trans_attempt_st > WATCHDOG_THRESH_us) {
+			vTaskDelay(1);
 		}
 		current_signaled_state = xEventGroupGetBits(_task_state_event_group_h);
 		current_exec_state     = xEventGroupGetBits(_controller_sync_event_group_h);
