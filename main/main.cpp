@@ -1,5 +1,6 @@
 #include <stdio.h>
-#include <functional>
+
+#include "esp_log.h"
 
 #include "freertos/FreeRTOS.h"
 
@@ -7,16 +8,39 @@
 #include "controllers/pid_controller.hpp"
 #include "filters.hpp"
 
-float err_func() {
-	return 5.0f;
-}
+#include "tasks.hpp"
+#include "controller_task.hpp"
+#include "encoder_task.hpp"
+
+using task::controller::ControllerTask;
+using task::controller::ControllerState_e;
+using task::encoder::EncoderTask;
 
 extern "C" void app_main(void)
 {
-	Filter     * const test_filter     = new LowPassRC(0.002f, 0.01);
-	Controller * const test_controller = new PID(err_func, 3.0f, 2.0f, 1.0f);
+	ControllerTask controller_task = ControllerTask::get_instance();
+	EncoderTask    encoder_task    = EncoderTask::get_instance();
 
-	test_controller->setup();
+	QueueHandle_t setpoint_qh = xQueueCreate(1, sizeof(float));
+	QueueHandle_t speed_qh    = xQueueCreate(1, sizeof(float));
+	QueueHandle_t cpoint_qh   = xQueueCreate(1, sizeof(float));
+	ControllerTask::config_params controller_config = {
+		.setpoint_qh       = setpoint_qh,
+		.speed_qh          = speed_qh,
+		.control_signal_qh = cpoint_qh
+	};
+	EncoderTask::config_params encoder_config = {
+		.speed_qh = speed_qh
+	};
+	controller_task.set_params(controller_config);
+	encoder_task.set_params(encoder_config);
+
+	vTaskDelay(pdMS_TO_TICKS(3000));
+	controller_task.start();
+	controller_task.wait_state(ControllerState_e::CONTROL, portMAX_DELAY);
+
+	vTaskDelay(pdMS_TO_TICKS(12000));
+	controller_task.stop();
 
 	while (true) {
 		vTaskDelay(100 / portTICK_PERIOD_MS);
