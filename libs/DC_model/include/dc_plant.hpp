@@ -33,6 +33,13 @@ public:
 	EulerDCMotorModel(EulerDCMotorModel &other);
 	EulerDCMotorModel(dc_parameters &parameters, double sample_time_s);
 
+	/**
+	 * @brief Calculate the next iteration of the simulation
+	 *
+	 * @param amature_volt Voltage applied to the amature
+	 * @param load_Nm      Load applied to the motor
+	 * @return Angular speed of the engine in rad/s
+	 */
 	double step(double const amature_volt, double const load_Nm);
 protected:
 private:
