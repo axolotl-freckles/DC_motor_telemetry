@@ -15,17 +15,17 @@ namespace DCPlant {
 
 struct dc_parameters
 {
-	double res_ohm      = 0.0f; /* Amature resistance          */
-	double inductance   = 0.0f; /* Inductance of amature       */
-	double moment_kg_m2 = 0.0f; /* Moment of inertia           */
-	double viscous_u    = 0.0f; /* Viscous friction coeficient */
-	double Kt = 0.0f; /* ??? */
-	double Kb = 0.0f; /* ??? */
+	double res_ohm      = 0.0; /* Amature resistance          */
+	double inductance   = 0.0; /* Inductance of amature       */
+	double moment_kg_m2 = 0.0; /* Moment of inertia           */
+	double viscous_u    = 0.0; /* Viscous friction coeficient */
+	double Kt_Nm_A      = 0.0; /* Torque constant             */
+	double Kb_V_rad_s   = 0.0; /* Back-emf constant           */
 };
 
 struct dc_state {
-	double w_rad_s = 0.0f; /* Angular speed   */
-	double I_amp   = 0.0f; /* Amature current */
+	double w_rad_s = 0.0; /* Angular speed   */
+	double I_amp   = 0.0; /* Amature current */
 };
 
 class EulerDCMotorModel {
