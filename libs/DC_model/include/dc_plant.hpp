@@ -31,7 +31,9 @@ struct dc_state {
 class EulerDCMotorModel {
 public:
 	EulerDCMotorModel(EulerDCMotorModel &other);
-	EulerDCMotorModel(dc_parameters &parameters, double sample_time_s);
+	EulerDCMotorModel(dc_parameters     &parameters,
+	                  double             sample_time_s
+	);
 
 	/**
 	 * @brief Calculate the next iteration of the simulation
@@ -40,13 +42,58 @@ public:
 	 * @param load_Nm      Load applied to the motor
 	 * @return Angular speed of the engine in rad/s
 	 */
-	double step(double const amature_volt, double const load_Nm);
+	double step (double const amature_volt, double const load_Nm);
+
+	const dc_parameters& parameters () const { return _parameters;    }
+	double               sample_time() const { return _sample_time_s; }
+	const dc_state     & state      () const { return _state;         }
 protected:
 private:
 	dc_parameters _parameters;
 	double        _sample_time_s;
 
 	dc_state      _state;
+};
+
+class DCMotorObserver {
+public:
+	struct EstimationParams {
+		double alpha_1 = 0;
+		double alpha_2 = 0;
+		double alpha_3 = 0;
+
+		double k_1 = 0;
+		double k_2 = 0;
+		double k_3 = 0;
+	};
+
+	struct EstimationResults {
+		double w_rad_s = 0;
+		double load_Nm = 0;
+	};
+
+	DCMotorObserver(DCMotorObserver   &other);
+	DCMotorObserver(EulerDCMotorModel &other, EstimationParams &es_params);
+	DCMotorObserver(dc_parameters     &parameters,
+	                double             sample_time_s
+	);
+
+	EstimationResults step (
+		const double   amature_volt,
+		const dc_state correct_state
+	);
+
+	const dc_parameters& parameters () const { return _parameters;    }
+	double               sample_time() const { return _sample_time_s; }
+	const dc_state     & state      () const { return _state;         }
+protected:
+private:
+	dc_parameters    _parameters;
+	EstimationParams _es_params;
+	double           _sample_time_s;
+
+	dc_state         _state;
+	double           _estimated_load;
 };
 
 }
