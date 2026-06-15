@@ -30,9 +30,9 @@ struct dc_state {
 
 class EulerDCMotorModel {
 public:
-	EulerDCMotorModel(EulerDCMotorModel &other);
-	EulerDCMotorModel(dc_parameters     &parameters,
-	                  double             sample_time_s
+	EulerDCMotorModel(EulerDCMotorModel   &other);
+	EulerDCMotorModel(const dc_parameters &parameters,
+	                  double               sample_time_s
 	);
 
 	/**
@@ -58,9 +58,9 @@ private:
 class DCMotorObserver {
 public:
 	struct EstimationParams {
-		double alpha_1 = 0;
-		double alpha_2 = 0;
-		double alpha_3 = 0;
+		double alfa_1 = 0;
+		double alfa_2 = 0;
+		double alfa_3 = 0;
 
 		double k_1 = 0;
 		double k_2 = 0;
@@ -74,8 +74,9 @@ public:
 
 	DCMotorObserver(DCMotorObserver   &other);
 	DCMotorObserver(EulerDCMotorModel &other, EstimationParams &es_params);
-	DCMotorObserver(dc_parameters     &parameters,
-	                double             sample_time_s
+	DCMotorObserver(const dc_parameters    &parameters,
+	                const EstimationParams &es_params,
+	                double                  sample_time_s
 	);
 
 	EstimationResults step (
@@ -83,9 +84,10 @@ public:
 		const dc_state correct_state
 	);
 
-	const dc_parameters& parameters () const { return _parameters;    }
-	double               sample_time() const { return _sample_time_s; }
-	const dc_state     & state      () const { return _state;         }
+	const dc_parameters& parameters    () const { return _parameters;     }
+	double               sample_time   () const { return _sample_time_s;  }
+	const dc_state     & state         () const { return _state;          }
+	double               estimated_load() const { return _estimated_load; }
 protected:
 private:
 	dc_parameters    _parameters;

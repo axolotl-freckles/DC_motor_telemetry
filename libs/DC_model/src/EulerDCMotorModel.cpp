@@ -11,8 +11,8 @@
 #include "dc_plant.hpp"
 
 DCPlant::EulerDCMotorModel::EulerDCMotorModel (
-	dc_parameters &parameters,
-	double         sample_time_s
+	const dc_parameters &parameters,
+	double               sample_time_s
 ) :
 	_parameters(parameters),
 	_sample_time_s(sample_time_s)
