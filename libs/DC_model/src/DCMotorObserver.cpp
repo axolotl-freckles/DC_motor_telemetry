@@ -42,14 +42,14 @@ DCPlant::DCMotorObserver::EstimationResults DCPlant::DCMotorObserver::step (
 	const double y = _state.w_rad_s;
 	DCPlant::dc_state new_state;
 	DCPlant::dc_state error     = {
-		.w_rad_s = correct_state.w_rad_s - _state.w_rad_s,
-		.I_amp   = correct_state.I_amp   - _state.I_amp
+		.w_rad_s = _state.w_rad_s - correct_state.w_rad_s,
+		.I_amp   = _state.I_amp   - correct_state.I_amp
 	};
 
 	const double new_estimated_load = _estimated_load
-	+ _sample_time_s*( 0.0
+	+ _sample_time_s*(
 		+ _es_params.alfa_3*error.w_rad_s
-		+ _es_params.k_3*sign(error.w_rad_s)
+		+ _es_params.k_3   *sign(error.w_rad_s)
 	);
 
 	new_state.w_rad_s = _state.w_rad_s;
