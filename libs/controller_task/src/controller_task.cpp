@@ -17,6 +17,8 @@
 #include "controllers/pid_controller.hpp"
 #include "encoder_task.hpp"
 
+#define CONTROLLER_TYPE PID
+
 using namespace task;
 using namespace task::controller;
 
@@ -101,13 +103,13 @@ static inline const char * state_to_str(EventBits_t state_bits) {
 }
 
 static void controller_task_fn(void *args) {
-	char controller_mem_space[sizeof(PID)                             ] = {0};
+	char controller_mem_space[sizeof(CONTROLLER_TYPE)                 ] = {0};
 	char trans_hand_mem_space[sizeof(StateSwitcher<ControllerState_e>)] = {0};
 	EventGroupHandle_t  task_state_event_group_h;
 	EventGroupHandle_t  controller_sync_event_h;
 	TaskArgs_t         *interface_attr     = (TaskArgs_t*)args;
 	TickType_t          previous_wake_time = xTaskGetTickCount();
-	PID                *controller         = nullptr;
+	CONTROLLER_TYPE    *controller         = nullptr;
 	EventBits_t         current_state      = ControllerState_e::IDLE;
 	float               setpoint           = 20.0f;
 	int64_t             windx_start        = 0;
@@ -126,7 +128,9 @@ static void controller_task_fn(void *args) {
 		return 0.0f - setpoint;
 	};
 
-	controller = new (controller_mem_space) PID(error_func, 3.0f, 2.0f, 1.0f);
+#if CONTROLLER_TYPE == PID
+	controller = new (controller_mem_space) CONTROLLER_TYPE(error_func, 3.0f, 2.0f, 1.0f);
+#endif
 	controller->set_integrator_saturators(10.0);
 
 	TransHandler_ft handle_transition = {
