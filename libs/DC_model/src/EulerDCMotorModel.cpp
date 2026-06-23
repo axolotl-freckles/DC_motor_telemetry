@@ -42,3 +42,10 @@ double DCPlant::EulerDCMotorModel::step (
 	_state = new_state;
 	return y;
 }
+
+void DCPlant::EulerDCMotorModel::reset() {
+	_state = {
+		.w_rad_s = 0.0,
+		.I_amp   = 0.0
+	};
+}

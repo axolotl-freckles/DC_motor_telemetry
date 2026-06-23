@@ -44,6 +44,8 @@ public:
 	 */
 	double step (double const amature_volt, double const load_Nm);
 
+	void reset();
+
 	const dc_parameters& parameters () const { return _parameters;    }
 	double               sample_time() const { return _sample_time_s; }
 	const dc_state     & state      () const { return _state;         }
@@ -83,6 +85,8 @@ public:
 		const double   amature_volt,
 		const dc_state correct_state
 	);
+
+	void reset();
 
 	const dc_parameters& parameters    () const { return _parameters;     }
 	double               sample_time   () const { return _sample_time_s;  }

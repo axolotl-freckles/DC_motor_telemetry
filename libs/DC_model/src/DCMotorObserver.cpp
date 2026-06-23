@@ -78,3 +78,10 @@ DCPlant::DCMotorObserver::EstimationResults DCPlant::DCMotorObserver::step (
 		.load_Nm = new_estimated_load
 	};
 }
+void DCPlant::DCMotorObserver::reset() {
+	_estimated_load = 0.0;
+	_state = {
+		.w_rad_s = 0.0,
+		.I_amp   = 0.0
+	};
+}
