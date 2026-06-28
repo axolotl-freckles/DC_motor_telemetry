@@ -35,7 +35,7 @@ extern "C" void app_main(void)
 	controller_task.set_params(controller_config);
 	encoder_task.set_params(encoder_config);
 
-	vTaskDelay(pdMS_TO_TICKS(3000));
+	vTaskDelay(pdMS_TO_TICKS(1000));
 	controller_task.start();
 	controller_task.wait_state(ControllerState_e::CONTROL, portMAX_DELAY);
 

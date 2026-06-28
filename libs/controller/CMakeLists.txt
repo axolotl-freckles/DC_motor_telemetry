@@ -7,6 +7,8 @@ idf_component_register (
 		"controllers/open_loop_controller.cpp"
 	INCLUDE_DIRS "."
 	REQUIRES
+		"esp_timer"
+		"globals"
 		"time_series"
 		"DC_model"
 	)

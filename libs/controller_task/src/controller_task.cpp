@@ -11,24 +11,34 @@
 
 #include "controller_task.hpp"
 
+#include "globals.hpp"
+
 #include "esp_log.h"
 #include "esp_timer.h"
 
+#include "dc_plant.hpp"
 #include "controllers/pid_controller.hpp"
+#include "controllers/open_loop_controller.hpp"
 #include "encoder_task.hpp"
 
-#define CONTROLLER_TYPE PID
+#define CONTROLLER_TYPE_PID  0
+#define CONTROLLER_TYPE_OPEN 1
+
+#define CONTROLLER_TYPE CONTROLLER_TYPE_OPEN
 
 using namespace task;
 using namespace task::controller;
 
 const char LOG_TAG[] = "controller";
 
-constexpr TickType_t CONTROLLER_TICK_TIME_ms = 2000;
-constexpr int64_t    WINDUP_PERIOD_us        = 6000000;
-constexpr int64_t    WINDOWN_PERIOD_us       = 6000000;
+constexpr TickType_t CONTROLLER_TICK_TIME_ms = SAMPLE_TIME_ms;
+constexpr int64_t    WINDUP_PERIOD_us        = 1500000;
+constexpr int64_t    WINDOWN_PERIOD_us       = 1500000;
+constexpr float      WINDUP_PERIODf_s        = WINDUP_PERIOD_us *1e-6f;
+constexpr float      WINDOWN_PERIODf_s       = WINDOWN_PERIOD_us*1e-6f;
 constexpr int64_t    WATCHDOG_THRESH_us      = 1000;
 constexpr int64_t    STOP_TIMEOUT_us         = CONTROLLER_TICK_TIME_ms*1000LL;
+constexpr float      DEFAULT_SETPOINT        = 30.0f;
 
 constexpr EventBits_t INIT_OK           = 0b1 << 11;
 constexpr EventBits_t STATE_MASK        = ~(INIT_OK | ControllerState_e::ERROR);
@@ -42,6 +52,11 @@ struct StateStruct_t {
 	StateSwitcher<ControllerState_e> * transition_handler        = nullptr;
 	EventGroupHandle_t                 task_state_event_group_h  = nullptr;
 	int64_t                          * windx_start               = nullptr;
+	float                            * windwn_setpoint           = nullptr;
+#if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
+	QueueHandle_t                      open_loop_voltage_qh      = nullptr;
+	DCPlant::EulerDCMotorModel const * motor_model               = nullptr;
+#endif
 };
 struct TaskArgs_t {
 	/* Task management variables */
@@ -103,15 +118,23 @@ static inline const char * state_to_str(EventBits_t state_bits) {
 }
 
 static void controller_task_fn(void *args) {
-	char controller_mem_space[sizeof(CONTROLLER_TYPE)                 ] = {0};
+#if CONTROLLER_TYPE == CONTROLLER_TYPE_PID
+	char controller_mem_space[sizeof(PID)                             ] = {0};
+#endif
+#if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
+	char controller_mem_space[sizeof(OpenLoop)                        ] = {0};
+#endif
 	char trans_hand_mem_space[sizeof(StateSwitcher<ControllerState_e>)] = {0};
 	EventGroupHandle_t  task_state_event_group_h;
 	EventGroupHandle_t  controller_sync_event_h;
 	TaskArgs_t         *interface_attr     = (TaskArgs_t*)args;
 	TickType_t          previous_wake_time = xTaskGetTickCount();
-	CONTROLLER_TYPE    *controller         = nullptr;
+	Controller         *controller         = nullptr;
 	EventBits_t         current_state      = ControllerState_e::IDLE;
-	float               setpoint           = 20.0f;
+	EventBits_t         previous_state     = 0;
+	EventBits_t         state_delta        = 0;
+	float               setpoint           = 0.0f;
+	float               windwn_setpoint    = 0.0f;
 	int64_t             windx_start        = 0;
 	StateSwitcher<ControllerState_e> *transition_handler = nullptr;
 
@@ -124,14 +147,20 @@ static void controller_task_fn(void *args) {
 	);
 	transition_handler->update_state(ControllerState_e::IDLE);
 
+#if CONTROLLER_TYPE == CONTROLLER_TYPE_PID
 	std::function<float ()> error_func = [&setpoint] () -> float {
 		return 0.0f - setpoint;
 	};
 
-#if CONTROLLER_TYPE == PID
-	controller = new (controller_mem_space) CONTROLLER_TYPE(error_func, 3.0f, 2.0f, 1.0f);
+	controller = new (controller_mem_space) PID(error_func, 3.0f, 2.0f, 1.0f);
+	((PID*)controller)->set_integrator_saturators(10.0f);
 #endif
-	controller->set_integrator_saturators(10.0);
+#if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
+	const float voltage_setpoint = 30.0f;
+	QueueHandle_t voltage_queue = xQueueCreate(1, sizeof(float));
+	xQueueOverwrite(voltage_queue, &voltage_setpoint);
+	controller = new (controller_mem_space) OpenLoop(voltage_queue);
+#endif
 
 	TransHandler_ft handle_transition = {
 		.controller  =  controller,
@@ -146,7 +175,12 @@ static void controller_task_fn(void *args) {
 		.setpoint                 = &setpoint,
 		.transition_handler       =  transition_handler,
 		.task_state_event_group_h =  task_state_event_group_h,
-		.windx_start              = &windx_start
+		.windx_start              = &windx_start,
+		.windwn_setpoint          = &windwn_setpoint
+#if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
+		,.open_loop_voltage_qh     = voltage_queue,
+		.motor_model              = &((OpenLoop*)controller)->model()
+#endif
 	};
 
 	*(interface_attr->_transition_handler) = transition_handler;
@@ -155,7 +189,8 @@ static void controller_task_fn(void *args) {
 	xEventGroupSetBits(task_state_event_group_h, INIT_OK);
 
 	while (true) {
-		current_state = xEventGroupGetBits(task_state_event_group_h);
+		current_state  = xEventGroupGetBits(task_state_event_group_h);
+		state_delta    = current_state ^ previous_state;
 		(void)xEventGroupClearBits(controller_sync_event_h, CLEAR_BITS_MASK);
 		(void)xEventGroupSetBits  (controller_sync_event_h, current_state);
 
@@ -163,9 +198,13 @@ static void controller_task_fn(void *args) {
 			handle_error(state);
 		}
 		else {
+			if (state_delta & current_state & ControllerState_e::WINDOWN) {
+				windwn_setpoint = setpoint;
+			}
 			handle_state(state);
 		}
 
+		previous_state = current_state;
 		(void)xTaskDelayUntil(
 			&previous_wake_time,
 			pdMS_TO_TICKS(CONTROLLER_TICK_TIME_ms)
@@ -218,6 +257,9 @@ inline void control_tick(const StateStruct_t &state) {
 			speed
 		);
 	}
+#if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
+	xQueueOverwrite(state.open_loop_voltage_qh, state.setpoint);
+#endif
 	state.controller->loop();
 	control_signal = state.controller->get_control_point().voltage;
 	ESP_LOGI(LOG_TAG, "Control point is: %.3e", control_signal);
@@ -266,26 +308,35 @@ void control_loop(const StateStruct_t &state) {
 	control_tick(state);
 }
 void windup_loop (const StateStruct_t &state) {
-	int64_t start_time = *state.windx_start;
-	int64_t curr_time  = esp_timer_get_time();
+	const int64_t start_time   = *state.windx_start;
+	const int64_t curr_time    = esp_timer_get_time();
+	const float   elapsed_time = (curr_time - start_time)*1e-6f;
 
 	if ( curr_time > start_time+WINDUP_PERIOD_us ) {
 		state.transition_handler->update_state(ControllerState_e::CONTROL);
+		*state.setpoint = DEFAULT_SETPOINT;
+	}
+	else {
+		*state.setpoint = DEFAULT_SETPOINT*elapsed_time/WINDOWN_PERIODf_s;
 	}
 
-	*state.setpoint += 3.0f;
 	ESP_LOGI(LOG_TAG, "Windup setpoint: %.3e", *state.setpoint);
 	control_tick(state);
 }
 void windown_loop(const StateStruct_t &state) {
-	int64_t start_time = *state.windx_start;
-	int64_t curr_time  = esp_timer_get_time();
+	const int64_t start_time   = *state.windx_start;
+	const int64_t curr_time    = esp_timer_get_time();
+	const float   elapsed_time = (curr_time - start_time)*1e-6f;
 
 	if ( curr_time > start_time+WINDOWN_PERIOD_us ) {
 		state.transition_handler->update_state(ControllerState_e::IDLE);
+		*state.setpoint = 0.0f;
+	}
+	else {
+		*state.setpoint = *state.windwn_setpoint
+		                  *(1.0f - elapsed_time/WINDOWN_PERIODf_s);
 	}
 
-	*state.setpoint -= 3.0f;
 	ESP_LOGI(LOG_TAG, "Windown setpoint: %.3e", *state.setpoint);
 	control_tick(state);
 }
@@ -437,7 +488,7 @@ task::controller::ControllerTask::ControllerTask()
 	xTaskCreate(
 		controller_task_fn,
 		"controller_task",
-		2048 + 512,
+		2048 + 512 + 512,
 		&args,
 		3,
 		&_frtos_task_h

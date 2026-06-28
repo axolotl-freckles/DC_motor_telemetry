@@ -22,31 +22,31 @@ DCPlant::DCMotorObserver::DCMotorObserver(
 	_parameters      (other.parameters ()),
 	_es_params       (es_params),
 	_sample_time_s   (other.sample_time()),
-	_estimated_load(0.0)
+	_estimated_load(0.0f)
 { }
 DCPlant::DCMotorObserver::DCMotorObserver(
 	const dc_parameters    &parameters,
 	const EstimationParams &es_params,
-	double                  sample_time_s
+	float                   sample_time_s
 ) :
 	_parameters      (parameters),
 	_es_params       (es_params),
 	_sample_time_s   (sample_time_s),
-	_estimated_load(0.0)
+	_estimated_load(0.0f)
 { }
 
 DCPlant::DCMotorObserver::EstimationResults DCPlant::DCMotorObserver::step (
-	const double            amature_volt,
+	const float             amature_volt,
 	const DCPlant::dc_state correct_state
 ) {
-	const double y = _state.w_rad_s;
+	const float y = _state.w_rad_s;
 	DCPlant::dc_state new_state;
 	DCPlant::dc_state error     = {
 		.w_rad_s = _state.w_rad_s - correct_state.w_rad_s,
 		.I_amp   = _state.I_amp   - correct_state.I_amp
 	};
 
-	const double new_estimated_load = _estimated_load
+	const float new_estimated_load = _estimated_load
 	+ _sample_time_s*(
 		+ _es_params.alfa_3*error.w_rad_s
 		+ _es_params.k_3   *sign(error.w_rad_s)
@@ -79,9 +79,9 @@ DCPlant::DCMotorObserver::EstimationResults DCPlant::DCMotorObserver::step (
 	};
 }
 void DCPlant::DCMotorObserver::reset() {
-	_estimated_load = 0.0;
+	_estimated_load = 0.0f;
 	_state = {
-		.w_rad_s = 0.0,
-		.I_amp   = 0.0
+		.w_rad_s = 0.0f,
+		.I_amp   = 0.0f
 	};
 }
