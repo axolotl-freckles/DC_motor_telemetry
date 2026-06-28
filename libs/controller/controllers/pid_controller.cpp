@@ -23,7 +23,7 @@ PID::PID (std::function<float ()> error_function, float Kp, float Ki, float Kd)
 
 void PID::setup() {
 	_integrator.setIntegralAcumulator(0.0f);
-	set_voltage(1.0);
+	set_voltage(1.0f);
 }
 void PID::loop() {
 	float error = _error_function();

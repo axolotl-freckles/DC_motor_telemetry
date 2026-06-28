@@ -44,5 +44,5 @@ float Controller::get_sample_time_s(void) {
 	return FIRMWARE_TICK_INTERVAL_ms * 1e-3;
 }
 float Controller::get_sample_frequency_hz(void) {
-	return 1.0 / (FIRMWARE_TICK_INTERVAL_ms * 1e-3);
+	return 1.0 / (FIRMWARE_TICK_INTERVAL_ms * 1.e-3f);
 }

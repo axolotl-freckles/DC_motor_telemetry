@@ -10,7 +10,7 @@
  */
 #include "winddown.hpp"
 
-Winddown::Winddown()             : _period(0.0)    {}
+Winddown::Winddown()             : _period(0.0f)    {}
 Winddown::Winddown(float period) : _period(period) {}
 
 ControlPoint LinearWinddown::step(float delta_time) const {

@@ -25,7 +25,7 @@ LowPassRC::LowPassRC(float rc, float sampleTime_s)
 : Filter()
 	, _sample_time_s(sampleTime_s)
 	, _alpha(sampleTime_s/(sampleTime_s+rc))
-	, _prev_val(0.0)
+	, _prev_val(0.0f)
 {}
 
 template<int av_window_size>

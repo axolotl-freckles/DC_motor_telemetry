@@ -10,7 +10,7 @@
  */
 #include "windup.hpp"
 
-Windup::Windup()             : _period(0.0)    {}
+Windup::Windup()             : _period(0.0f)    {}
 Windup::Windup(float period) : _period(period) {}
 
 ControlPoint LinearWindup::step(float delta_time) const {
