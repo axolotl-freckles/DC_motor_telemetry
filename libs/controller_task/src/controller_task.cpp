@@ -19,25 +19,28 @@
 #include "dc_plant.hpp"
 #include "controllers/pid_controller.hpp"
 #include "controllers/open_loop_controller.hpp"
+#include "controllers/fixed_sp_controller.hpp"
 #include "encoder_task.hpp"
+#include "telemetry_task.hpp"
 
 #define CONTROLLER_TYPE_PID  0
 #define CONTROLLER_TYPE_OPEN 1
+#define CONTROLLER_TYPE_FIXD 2
 
-#define CONTROLLER_TYPE CONTROLLER_TYPE_OPEN
+#define CONTROLLER_TYPE CONTROLLER_TYPE_FIXD
 
 using namespace task;
 using namespace task::controller;
 
 const char LOG_TAG[] = "controller";
 
-constexpr TickType_t CONTROLLER_TICK_TIME_ms = SAMPLE_TIME_ms;
+constexpr TickType_t TELEMETRY_TICK_TIME_ms = SAMPLE_TIME_ms;
 constexpr int64_t    WINDUP_PERIOD_us        = 1500000;
 constexpr int64_t    WINDOWN_PERIOD_us       = 1500000;
 constexpr float      WINDUP_PERIODf_s        = WINDUP_PERIOD_us *1e-6f;
 constexpr float      WINDOWN_PERIODf_s       = WINDOWN_PERIOD_us*1e-6f;
 constexpr int64_t    WATCHDOG_THRESH_us      = 1000;
-constexpr int64_t    STOP_TIMEOUT_us         = CONTROLLER_TICK_TIME_ms*1000LL;
+constexpr int64_t    STOP_TIMEOUT_us         = TELEMETRY_TICK_TIME_ms*1000LL;
 constexpr float      DEFAULT_SETPOINT        = 30.0f;
 
 constexpr EventBits_t INIT_OK           = 0b1 << 11;
@@ -124,6 +127,10 @@ static void controller_task_fn(void *args) {
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
 	char controller_mem_space[sizeof(OpenLoop)                        ] = {0};
 #endif
+#if CONTROLLER_TYPE == CONTROLLER_TYPE_FIXD
+	constexpr int N_SETPOINTS = 3;
+	char controller_mem_space[sizeof(FixedSPController<N_SETPOINTS>)  ] = {0};
+#endif
 	char trans_hand_mem_space[sizeof(StateSwitcher<ControllerState_e>)] = {0};
 	EventGroupHandle_t  task_state_event_group_h;
 	EventGroupHandle_t  controller_sync_event_h;
@@ -137,6 +144,8 @@ static void controller_task_fn(void *args) {
 	float               windwn_setpoint    = 0.0f;
 	int64_t             windx_start        = 0;
 	StateSwitcher<ControllerState_e> *transition_handler = nullptr;
+
+	(void)telemetry::TelemetryTask::get_instance();
 
 	task_state_event_group_h = *interface_attr->_task_state_event_group_h;
 	controller_sync_event_h  = *interface_attr->_controller_sync_event_h;
@@ -160,6 +169,21 @@ static void controller_task_fn(void *args) {
 	QueueHandle_t voltage_queue = xQueueCreate(1, sizeof(float));
 	xQueueOverwrite(voltage_queue, &voltage_setpoint);
 	controller = new (controller_mem_space) OpenLoop(voltage_queue);
+#endif
+#if CONTROLLER_TYPE == CONTROLLER_TYPE_FIXD
+	BzSetpoint_t setpoints[N_SETPOINTS] = {
+		{.start_time=0.1f, .trans_time=0.5f, .setpoint=500.0f},
+		{.start_time=1.7f, .trans_time=0.5f, .setpoint=250.0f},
+		{.start_time=3.3f, .trans_time=0.5f, .setpoint=375.0f}
+	};
+	float rs[] = { 252.0f, -1050.0f, 1800.0f, -1575.0f, 700.0f, -126.0f};
+	controller = new (controller_mem_space) FixedSPController<N_SETPOINTS>(
+		setpoints, rs,
+		3.1758f,
+		0.4152f,
+		0.0975f,
+		0.4560f
+	);
 #endif
 
 	TransHandler_ft handle_transition = {
@@ -207,7 +231,7 @@ static void controller_task_fn(void *args) {
 		previous_state = current_state;
 		(void)xTaskDelayUntil(
 			&previous_wake_time,
-			pdMS_TO_TICKS(CONTROLLER_TICK_TIME_ms)
+			pdMS_TO_TICKS(TELEMETRY_TICK_TIME_ms)
 		);
 	}
 }

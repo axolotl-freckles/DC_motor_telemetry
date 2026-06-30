@@ -45,8 +45,8 @@ static void interpolate_simulation(
 
 OpenLoop::OpenLoop (QueueHandle_t voltage_q) :
 	_voltage_q (voltage_q),
-	_estimator (params, MODEL_SIM_TIME_s),
-	_observer  (params, es_prms, MODEL_SIM_TIME_s)
+	_estimator (SAMPLE_PARAMS, MODEL_SIM_TIME_s),
+	_observer  (SAMPLE_PARAMS, SAMPLE_OBS_PRMS, MODEL_SIM_TIME_s)
 {}
 
 void OpenLoop::setup () {

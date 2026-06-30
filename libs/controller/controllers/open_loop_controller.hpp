@@ -37,20 +37,3 @@ private:
 	uint64_t                   _start_time_us    = 0L;
 	float                      _voltage_setpoint = 0.0f;
 };
-
-const DCPlant::dc_parameters params = {
-	.res_ohm      = 6.6f,
-	.inductance   = 0.00815f,
-	.moment_kg_m2 = 0.004f,
-	.viscous_u    = 0.00132f,
-	.Kt_Nm_A      = 0.436f,
-	.Kb_V_rad_s   = 0.436f
-};
-const DCPlant::DCMotorObserver::EstimationParams es_prms = {
-	.alfa_1 = 0.00001f,
-	.alfa_2 = 0.00001f,
-	.alfa_3 = 1.00000000001f,
-	.k_1     = 0.000000001f,
-	.k_2     = 0.00000001f,
-	.k_3     = 0.100000001f,
-};

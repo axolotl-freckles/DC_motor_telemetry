@@ -9,4 +9,5 @@ idf_component_register (
 		"libtask"
 		"controller"
 		"encoder_task"
+		"telemetry_task"
 	)
