@@ -1,6 +1,7 @@
 #include <stdio.h>
 
 #include "esp_log.h"
+#include "driver/ledc.h"
 
 #include "freertos/FreeRTOS.h"
 
@@ -20,6 +21,7 @@ extern "C" void app_main(void)
 {
 	ControllerTask controller_task = ControllerTask::get_instance();
 	EncoderTask    encoder_task    = EncoderTask::get_instance();
+	ledc_fade_func_install(0);
 
 	QueueHandle_t setpoint_qh = xQueueCreate(1, sizeof(float));
 	QueueHandle_t speed_qh    = xQueueCreate(1, sizeof(float));

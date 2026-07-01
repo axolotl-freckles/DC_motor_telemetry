@@ -15,6 +15,7 @@
 
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "driver/ledc.h"
 
 #include "dc_plant.hpp"
 #include "controllers/pid_controller.hpp"
@@ -27,7 +28,7 @@
 #define CONTROLLER_TYPE_OPEN 1
 #define CONTROLLER_TYPE_FIXD 2
 
-#define CONTROLLER_TYPE CONTROLLER_TYPE_FIXD
+#define CONTROLLER_TYPE CONTROLLER_TYPE_OPEN
 
 using namespace task;
 using namespace task::controller;
@@ -47,6 +48,23 @@ constexpr EventBits_t INIT_OK           = 0b1 << 11;
 constexpr EventBits_t STATE_MASK        = ~(INIT_OK | ControllerState_e::ERROR);
 constexpr EventBits_t PUBLIC_STATE_MASK = ~(INIT_OK);
 constexpr EventBits_t CLEAR_BITS_MASK   = ~(0xff000000UL);
+
+constexpr int      PWM_RESOLUTION   = 9;
+constexpr uint32_t PWM_MAX_VAL      = (1<<PWM_RESOLUTION) - 1;
+constexpr uint32_t PWM_FREQUENCY_Hz = 100000;
+constexpr int      HIGH_GPIO        = 18;
+constexpr int      LOW_GPIO         = 21;
+constexpr ledc_channel_t HIGH_CHANNEL = (ledc_channel_t)1;
+constexpr ledc_channel_t LOW_CHANNEL  = (ledc_channel_t)2;
+
+const ledc_timer_config_t   pwm_timer_config = {
+	.speed_mode      = LEDC_HIGH_SPEED_MODE,
+	.duty_resolution = (ledc_timer_bit_t)PWM_RESOLUTION,
+	.timer_num       = (ledc_timer_t)0,
+	.freq_hz         = PWM_FREQUENCY_Hz,
+	.clk_cfg         = LEDC_USE_APB_CLK,
+	.deconfigure     = false
+};
 
 struct StateStruct_t {
 	EventBits_t                      * current_state             = nullptr;
@@ -289,6 +307,12 @@ inline void control_tick(const StateStruct_t &state) {
 	ESP_LOGI(LOG_TAG, "Control point is: %.3e", control_signal);
 	ESP_LOGI(LOG_TAG, "Setpoint is     : %.3e", *state.setpoint);
 	xQueueOverwrite(queues.csignal_qh, &control_signal);
+
+	float dutycycle = control_signal / (control_signal + 24.0f);
+	dutycycle = std::max(dutycycle, 0.1f);
+	dutycycle = std::min(dutycycle, 0.9f);
+	ledc_set_duty_and_update(LEDC_HIGH_SPEED_MODE, HIGH_CHANNEL, dutycycle*PWM_MAX_VAL , 0);
+	ledc_set_duty_and_update(LEDC_HIGH_SPEED_MODE, HIGH_CHANNEL, (1-dutycycle)*PWM_MAX_VAL , 0);
 }
 
 void idle_loop   (const StateStruct_t &state) {
@@ -509,10 +533,69 @@ task::controller::ControllerTask::ControllerTask()
 	_controller_sync_event_group_h = xEventGroupCreateStatic(
 		&_controller_state_event_group
 	);
+	
+	esp_err_t error_code = ESP_OK;
+	ESP_LOGI(LOG_TAG, "Configuring PWM timer...");
+	uint32_t suitable_res = ledc_find_suitable_duty_resolution(
+		APB_CLK_FREQ, PWM_FREQUENCY_Hz
+	);
+	error_code = ESP_ERROR_CHECK_WITHOUT_ABORT(
+		ledc_timer_config(&pwm_timer_config)
+	);
+	if (suitable_res > PWM_RESOLUTION) {
+		ESP_LOGW(LOG_TAG,
+			"You can increase the resolution to %ld",
+			suitable_res
+		);
+	}
+	if (error_code != ESP_OK) {
+		ESP_LOGW(LOG_TAG,
+			"With a frequency of %ldHz, a resolution of %ld is needed",
+			PWM_FREQUENCY_Hz, suitable_res
+		);
+		xEventGroupSetBits(_task_state_event_group_h, ControllerState_e::ERROR);
+	}
+	ESP_LOGI(LOG_TAG, "PWM timer configured!");
+	ledc_channel_config_t channel_high_config = {
+		.gpio_num   = 0,
+		.speed_mode = LEDC_HIGH_SPEED_MODE,
+		.channel    = (ledc_channel_t)0,
+		.intr_type  = LEDC_INTR_DISABLE,
+		.timer_sel  = (ledc_timer_t)0,
+		.duty       = 0x0F,
+		.hpoint     = 0,
+		.flags = {.output_invert = 0}
+	};
+	ledc_channel_config_t channel_low_config = channel_high_config;
+	channel_high_config.gpio_num = HIGH_GPIO;
+	channel_high_config.channel  = HIGH_CHANNEL;
+	channel_low_config .gpio_num = LOW_GPIO;
+	channel_low_config .channel  = LOW_CHANNEL;
+	channel_high_config.flags.output_invert = 1;
+
+	error_code = ESP_ERROR_CHECK_WITHOUT_ABORT(
+		ledc_channel_config(&channel_high_config)
+	);
+	if (error_code != ESP_OK) {
+		ESP_LOGE( LOG_TAG,
+			"Error configuring high phase, ERRCODE:\n%s",
+			esp_err_to_name(error_code));
+		xEventGroupSetBits(_task_state_event_group_h, ControllerState_e::ERROR);
+	}
+	error_code = ESP_ERROR_CHECK_WITHOUT_ABORT(
+		ledc_channel_config(&channel_low_config)
+	);
+	if (error_code != ESP_OK) {
+		ESP_LOGE( LOG_TAG,
+			"Error configuring high phase, ERRCODE:\n%s",
+			esp_err_to_name(error_code));
+		xEventGroupSetBits(_task_state_event_group_h, ControllerState_e::ERROR);
+	}
+
 	xTaskCreate(
 		controller_task_fn,
 		"controller_task",
-		2048 + 512 + 512,
+		2048 + 512 + 512 + 4096 + 4096 + 4096,
 		&args,
 		3,
 		&_frtos_task_h
