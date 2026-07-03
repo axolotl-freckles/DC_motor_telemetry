@@ -4,6 +4,7 @@ idf_component_register (
 	INCLUDE_DIRS
 		"."
 	REQUIRES
+		"driver"
 		"libtask"
 		"esp_timer"
 	)
