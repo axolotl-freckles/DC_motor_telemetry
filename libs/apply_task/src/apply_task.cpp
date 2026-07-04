@@ -1,6 +1,6 @@
 /**
  * @file telemetry_task.cpp
- * @author ACMAX (you@domain.com)
+ * @author ACMAX & JoseManuelValle (you@domain.com)
  * @brief
  * @version 0.1
  * @date 2026-07-01
@@ -13,28 +13,44 @@
 #include "esp_log.h"
 #include "driver/ledc.h"
 
+#include "globals.hpp"
+
 using namespace task::apply;
 
 const char LOG_TAG[] = "apply";
 
-constexpr int      PWM_RESOLUTION   = 9;
-constexpr uint32_t PWM_MAX_VAL      = (1<<PWM_RESOLUTION) - 1;
-constexpr uint32_t PWM_FREQUENCY_Hz = 100000;
-constexpr int      HIGH_GPIO        = 18;
-constexpr int      LOW_GPIO         = 21;
-constexpr ledc_channel_t HIGH_CHANNEL = (ledc_channel_t)1;
-constexpr ledc_channel_t LOW_CHANNEL  = (ledc_channel_t)2;
+#define LEDC_SPEED_MODE LEDC_LOW_SPEED_MODE
+
+static constexpr ledc_timer_t   PWM_TIMER        = LEDC_TIMER_0;
+static constexpr int            PWM_RESOLUTION   = 9;
+static constexpr uint32_t       PWM_MAX_VAL      = (1<<PWM_RESOLUTION) - 1;
+static constexpr uint32_t       PWM_FREQUENCY_Hz = 100000;
+static constexpr int            HIGH_GPIO        = 18;
+static constexpr int            LOW_GPIO         = 21;
+static constexpr ledc_channel_t BUCK_CHANNEL     = (ledc_channel_t)1;
+static constexpr ledc_channel_t BOOST_CHANNEL      = (ledc_channel_t)2;
+
+static constexpr gpio_num_t BOOST_PIN = (gpio_num_t)LOW_GPIO;
+static constexpr gpio_num_t BUCK_PIN  = (gpio_num_t)HIGH_GPIO;
+
+
+struct ApplyTask_args
+{
+	EventGroupHandle_t *state_event_group_h;
+};
 
 struct StateStruct_t {
 	EventBits_t current_state = 0;
 };
 
 const ledc_timer_config_t   pwm_timer_config = {
-	.speed_mode      = LEDC_HIGH_SPEED_MODE,
+	//.speed_mode      = LEDC_SPEED_MODE,
+	.speed_mode      = LEDC_SPEED_MODE,
 	.duty_resolution = (ledc_timer_bit_t)PWM_RESOLUTION,
-	.timer_num       = (ledc_timer_t)0,
+	.timer_num       = PWM_TIMER,
 	.freq_hz         = PWM_FREQUENCY_Hz,
-	.clk_cfg         = LEDC_USE_APB_CLK,
+	//.clk_cfg         = LEDC_USE_APB_CLK,
+	.clk_cfg         = LEDC_AUTO_CLK,
 	.deconfigure     = false
 };
 
@@ -50,13 +66,13 @@ static void idle_loop (StateStruct_t &state);
 static void apply_loop(StateStruct_t &state);
 
 void apply_task_fn (void* raw_args) {
-	ApplyTask::ApplyTask_args *args = (ApplyTask::ApplyTask_args*)raw_args;
-	StateStruct_t state;
+	ApplyTask_args *args = (ApplyTask_args*)raw_args;
+	StateStruct_t  state;
 	EventBits_t   current_state  = ApplyState_e::IDLE;
 	EventBits_t   previous_state = 0;
 	EventBits_t   state_delta    = 0;
 
-	state_event_gh = args->state_event_group_h;
+	state_event_gh = *args->state_event_group_h;
 
 	xEventGroupSetBits(state_event_gh, ApplyState_e::IDLE);
 
@@ -74,7 +90,7 @@ void apply_task_fn (void* raw_args) {
 			handle_state(state);
 		}
 
-		vTaskDelay(10);
+		vTaskDelay(SAMPLE_TIME_ms);
 	}
 
 }
@@ -117,8 +133,8 @@ void apply_loop(StateStruct_t &state) {
 	dutycycle = voltage / (voltage + 24.0f);
 	dutycycle = std::max(dutycycle, 0.1f);
 	dutycycle = std::min(dutycycle, 0.9f);
-	ledc_set_duty_and_update(LEDC_HIGH_SPEED_MODE, HIGH_CHANNEL, dutycycle*PWM_MAX_VAL , 0);
-	ledc_set_duty_and_update(LEDC_HIGH_SPEED_MODE, HIGH_CHANNEL, (1-dutycycle)*PWM_MAX_VAL , 0);
+	ledc_set_duty_and_update(LEDC_SPEED_MODE, BUCK_CHANNEL, dutycycle*PWM_MAX_VAL , 0);
+	ledc_set_duty_and_update(LEDC_SPEED_MODE, BUCK_CHANNEL, (1-dutycycle)*PWM_MAX_VAL , 0);
 }
 
 /* ###################################################### TRANSITION HANDLING */
@@ -130,6 +146,7 @@ QueueHandle_t task::apply::ApplyTask::createQueue(UBaseType_t len) {
 }
 
 esp_err_t task::apply::ApplyTask::start() {
+	return ESP_OK;
 	esp_err_t   can_start     = ESP_OK;
 	EventBits_t curr_state    = xEventGroupGetBits(_task_state_event_group_h);
 	bool        transition_ok = false;
@@ -148,6 +165,7 @@ esp_err_t task::apply::ApplyTask::start() {
 	return can_start;
 }
 esp_err_t task::apply::ApplyTask::stop() {
+	return ESP_OK;
 	EventBits_t curr_state    = xEventGroupGetBits(_task_state_event_group_h);
 	if (curr_state & ApplyState_e::ERROR) {
 		ESP_LOGE(LOG_TAG, "Apply in error state!");
@@ -171,11 +189,17 @@ ApplyTask& task::apply::ApplyTask::get_instance() {
 task::apply::ApplyTask::ApplyTask () : task::StateTask() {
 	esp_err_t error_code = ESP_OK;
 
+	/*      FreeRTOS Task      */
 	_task_state_event_group_h = xEventGroupCreateStatic (
 		&_apply_state_event_group
 	);
-	_task_fn_args.state_event_group_h = _task_state_event_group_h;
 
+	ApplyTask_args task_fn_args = {
+		.state_event_group_h = &_task_state_event_group_h
+	};
+	/*      FreeRTOS Task      */
+
+	/*      LEDC Timer      */
 	ESP_LOGI(LOG_TAG, "Configuring PWM timer...");
 	uint32_t suitable_res = ledc_find_suitable_duty_resolution(
 		APB_CLK_FREQ, PWM_FREQUENCY_Hz
@@ -197,47 +221,51 @@ task::apply::ApplyTask::ApplyTask () : task::StateTask() {
 		xEventGroupSetBits(_task_state_event_group_h, ApplyState_e::ERROR);
 	}
 	ESP_LOGI(LOG_TAG, "PWM timer configured!");
-	ledc_channel_config_t channel_high_config = {
+	/*      LEDC Timer      */
+
+	/*      LEDC Channel     */
+	ledc_channel_config_t channel_boost_config = {
 		.gpio_num   = 0,
-		.speed_mode = LEDC_HIGH_SPEED_MODE,
+		.speed_mode = LEDC_SPEED_MODE,
 		.channel    = (ledc_channel_t)0,
 		.intr_type  = LEDC_INTR_DISABLE,
-		.timer_sel  = (ledc_timer_t)0,
+		.timer_sel  = PWM_TIMER,
 		.duty       = 0x0F,
 		.hpoint     = 0,
 		.flags = {.output_invert = 0}
 	};
-	ledc_channel_config_t channel_low_config = channel_high_config;
-	channel_high_config.gpio_num = HIGH_GPIO;
-	channel_high_config.channel  = HIGH_CHANNEL;
-	channel_low_config .gpio_num = LOW_GPIO;
-	channel_low_config .channel  = LOW_CHANNEL;
-	channel_high_config.flags.output_invert = 1;
+	ledc_channel_config_t channel_buck_config = channel_boost_config;
+	channel_boost_config.gpio_num = BOOST_PIN;
+	channel_boost_config.channel  = BUCK_CHANNEL;
+	channel_buck_config .gpio_num = BUCK_PIN;
+	channel_buck_config .channel  = BOOST_CHANNEL;
+	channel_boost_config.flags.output_invert = 1;
 
 	error_code = ESP_ERROR_CHECK_WITHOUT_ABORT(
-		ledc_channel_config(&channel_high_config)
+		ledc_channel_config(&channel_boost_config)
 	);
 	if (error_code != ESP_OK) {
 		ESP_LOGE( LOG_TAG,
-			"Error configuring high phase, ERRCODE:\n%s",
+			"Error configuring boost channel, ERRCODE:\n%s",
 			esp_err_to_name(error_code));
 		xEventGroupSetBits(_task_state_event_group_h, ApplyState_e::ERROR);
 	}
 	error_code = ESP_ERROR_CHECK_WITHOUT_ABORT(
-		ledc_channel_config(&channel_low_config)
+		ledc_channel_config(&channel_buck_config)
 	);
 	if (error_code != ESP_OK) {
 		ESP_LOGE( LOG_TAG,
-			"Error configuring high phase, ERRCODE:\n%s",
+			"Error configuring buck channel, ERRCODE:\n%s",
 			esp_err_to_name(error_code));
 		xEventGroupSetBits(_task_state_event_group_h, ApplyState_e::ERROR);
 	}
+	/*      LEDC Channel     */
 
 	xTaskCreate (
 		apply_task_fn,
 		"apply_task",
 		1024,
-		&_task_fn_args,
+		&task_fn_args,
 		3,
 		&_frtos_task_h
 	);

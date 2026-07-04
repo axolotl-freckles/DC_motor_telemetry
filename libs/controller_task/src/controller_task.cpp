@@ -90,7 +90,7 @@ static QueueHandles_t queues = {
 	.csignal_qh  = nullptr
 };
 
-static void apply_task_fn(void *args);
+static void control_task_fn(void *args);
 
 static void handle_state(const StateStruct_t &state);
 static void handle_error(const StateStruct_t &state);
@@ -121,7 +121,7 @@ static inline const char * state_to_str(EventBits_t state_bits) {
 	}
 }
 
-static void apply_task_fn(void *args) {
+static void control_task_fn(void *args) {
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_PID
 	char controller_mem_space[sizeof(PID)                             ] = {0};
 #endif
@@ -238,6 +238,7 @@ static void apply_task_fn(void *args) {
 }
 
 void handle_state(const StateStruct_t &state) {
+	ESP_LOGI(LOG_TAG, "state: %s", state_to_str(*state.current_state & STATE_MASK));
 	switch (*state.current_state & STATE_MASK) {
 		case ControllerState_e::IDLE:
 			idle_loop   (state);
@@ -519,9 +520,9 @@ task::controller::ControllerTask::ControllerTask()
 	);
 
 	xTaskCreate(
-		apply_task_fn,
+		control_task_fn,
 		"controller_task",
-		2048 + 512 + 512,
+		2048 + 512,
 		&args,
 		2,
 		&_frtos_task_h

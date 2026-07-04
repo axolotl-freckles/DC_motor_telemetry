@@ -1,5 +1,6 @@
 #include <stdio.h>
 
+#include "esp_heap_trace.h"
 #include "esp_log.h"
 #include "driver/ledc.h"
 

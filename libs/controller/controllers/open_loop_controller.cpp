@@ -14,6 +14,7 @@
 
 #include "esp_timer.h"
 
+#include "telemetry_task.hpp"
 #include "num_calculus.hpp"
 
 static void interpolate_simulation(
@@ -56,34 +57,33 @@ void OpenLoop::setup () {
 }
 
 void OpenLoop::loop () {
-	static    uint8_t  n_ticks = 1;
-	constexpr float    SIMULATED_LOAD   = 1.0f;
+	static    uint8_t  n_ticks        = 1;
+	constexpr float    SIMULATED_LOAD = 1.0f;
+	const     uint64_t now            = esp_timer_get_time();
 	//_voltage_setpoint = 30.0f;
 
-	interpolate_simulation (
-		_start_time_us,
-		_estimator,
-		_observer,
-		_voltage_setpoint,
-		SIMULATED_LOAD
-	);
+	// interpolate_simulation (
+	// 	_start_time_us,
+	// 	_estimator,
+	// 	_observer,
+	// 	_voltage_setpoint,
+	// 	SIMULATED_LOAD
+	// );
+
 
 	if (n_ticks >= 4) {
-		(void)printf( "%10.3e"
-		             ",%10.3e"
-		             ",%10.3e"
-		             ",%10.3e"
-		             ",%10.3e"
-		             ",%10.3e"
-		             ",%10.3e\n",
-			//_start_time_s,
-			esp_timer_get_time()*1e-6,
-			_voltage_setpoint,
-			_estimator.state().w_rad_s,
-			_estimator.state().I_amp,
-			_observer .state().w_rad_s,
-			_observer .state().I_amp,
-			_observer .estimated_load()
+		task::telemetry::telemetry_data_t package = {
+			.timestamp      = now*1e-6f,
+			.setpoint       = _voltage_setpoint,
+			.set_voltage    = _voltage_setpoint,
+			.w_rad_s        = _estimator.state().w_rad_s,
+			.I_amp          = _estimator.state().I_amp,
+			.estimated_load = _observer.estimated_load()
+		};
+		xQueueSend(
+			task::telemetry::TelemetryTask::get_instance().data_queue(),
+			&package,
+			0
 		);
 		n_ticks = 0;
 	}

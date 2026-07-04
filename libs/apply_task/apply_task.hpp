@@ -40,15 +40,9 @@ public:
 	// esp_err_t   wait_state(EventBits_t state, TickType_t timeout) override;
 
 	virtual ~ApplyTask();
-
-	struct ApplyTask_args
-	{
-		EventGroupHandle_t state_event_group_h;
-	};
 protected:
 private:
 	config_params      _config;
-	ApplyTask_args     _task_fn_args;
 	StaticEventGroup_t _apply_state_event_group;
 
 	ApplyTask();
