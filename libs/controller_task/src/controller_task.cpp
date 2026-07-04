@@ -13,6 +13,9 @@
 
 #include "esp_log.h"
 #include "esp_timer.h"
+#include <cstdlib>
+#include "freertos/task.h"
+#include "esp_heap_caps.h"
 
 #include "controllers/pid_controller.hpp"
 #include "encoder_task.hpp"
@@ -50,13 +53,16 @@ struct TaskArgs_t {
 	Controller                       **_controller               = nullptr;
 	/* Message interface variables */
 };
-struct TransHandler_ft {
+struct ControllerTransitionContext {
 	Controller *controller  = nullptr;
 	float      *setpoint    = nullptr;
 	int64_t    *windx_start = nullptr;
-
-	bool operator () (ControllerState_e from, ControllerState_e to);
 };
+static bool controller_transition_callback(
+	ControllerState_e from,
+	ControllerState_e to,
+	void *context
+);
 struct QueueHandles_t {
 	QueueHandle_t setpoint_qh = nullptr;
 	QueueHandle_t speed_qh    = nullptr;
@@ -101,15 +107,27 @@ static inline const char * state_to_str(EventBits_t state_bits) {
 }
 
 static void controller_task_fn(void *args) {
-	char controller_mem_space[sizeof(PID)                             ] = {0};
-	char trans_hand_mem_space[sizeof(StateSwitcher<ControllerState_e>)] = {0};
+	void *controller_mem_space = std::malloc(sizeof(PID));
+	void *trans_hand_mem_space = std::malloc(sizeof(StateSwitcher<ControllerState_e>));
+	if (!controller_mem_space || !trans_hand_mem_space) {
+		ESP_LOGE(LOG_TAG, "Failed to allocate controller buffers (heap low): %p %p", controller_mem_space, trans_hand_mem_space);
+		if (controller_mem_space) std::free(controller_mem_space);
+		if (trans_hand_mem_space) std::free(trans_hand_mem_space);
+		vTaskDelay(pdMS_TO_TICKS(1000));
+		vTaskDelete(NULL);
+		return;
+	}
+
+	size_t free_heap = esp_get_free_heap_size();
+	size_t min_free = heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT);
+	ESP_LOGI(LOG_TAG, "After malloc: free_heap=%u min_free=%u", (unsigned)free_heap, (unsigned)min_free);
 	EventGroupHandle_t  task_state_event_group_h;
 	EventGroupHandle_t  controller_sync_event_h;
 	TaskArgs_t         *interface_attr     = (TaskArgs_t*)args;
 	TickType_t          previous_wake_time = xTaskGetTickCount();
 	PID                *controller         = nullptr;
 	EventBits_t         current_state      = ControllerState_e::IDLE;
-	float               setpoint           = 20.0f;
+	float               setpoint           = 10.0f;
 	int64_t             windx_start        = 0;
 	StateSwitcher<ControllerState_e> *transition_handler = nullptr;
 
@@ -122,19 +140,32 @@ static void controller_task_fn(void *args) {
 	);
 	transition_handler->update_state(ControllerState_e::IDLE);
 
+	// Error function: return a positive drive value based on setpoint
+	// (no measurement available in this test harness). Using `setpoint`
+	// makes the controller output positive so PWM duty follows windup.
 	std::function<float ()> error_func = [&setpoint] () -> float {
-		return 0.0f - setpoint;
+		return setpoint;
 	};
 
-	controller = new (controller_mem_space) PID(error_func, 3.0f, 2.0f, 1.0f);
+	controller = new (controller_mem_space) PID(error_func, 0.2f, 0.0f, 0.0f);
 	controller->set_integrator_saturators(10.0);
 
-	TransHandler_ft handle_transition = {
-		.controller  =  controller,
+	ControllerTransitionContext *transition_context = (ControllerTransitionContext*)std::malloc(sizeof(ControllerTransitionContext));
+	if (!transition_context) {
+		ESP_LOGE(LOG_TAG, "Failed to allocate transition context");
+		vTaskDelay(pdMS_TO_TICKS(1000));
+		vTaskDelete(NULL);
+		return;
+	}
+	*transition_context = ControllerTransitionContext {
+		.controller  = controller,
 		.setpoint    = &setpoint,
 		.windx_start = &windx_start,
 	};
-	transition_handler->set_trans_callback(handle_transition);
+	transition_handler->set_trans_callback(
+		controller_transition_callback,
+		transition_context
+	);
 
 	StateStruct_t state = {
 		.current_state            = &current_state,
@@ -147,10 +178,14 @@ static void controller_task_fn(void *args) {
 
 	*(interface_attr->_transition_handler) = transition_handler;
 	*(interface_attr->_controller        ) = controller;
+	std::free(interface_attr);
 
 	xEventGroupSetBits(task_state_event_group_h, INIT_OK);
 
 	while (true) {
+		UBaseType_t highwater = uxTaskGetStackHighWaterMark(NULL);
+		size_t free_heap_loop = esp_get_free_heap_size();
+		ESP_LOGI(LOG_TAG, "controller_task stack high water mark: %u free_heap=%u", (unsigned)highwater, (unsigned)free_heap_loop);
 		current_state = xEventGroupGetBits(task_state_event_group_h);
 		(void)xEventGroupClearBits(controller_sync_event_h, CLEAR_BITS_MASK);
 		(void)xEventGroupSetBits  (controller_sync_event_h, current_state);
@@ -159,7 +194,9 @@ static void controller_task_fn(void *args) {
 			handle_error(state);
 		}
 		else {
+			ESP_LOGI(LOG_TAG, "handle_state start: %s", state_to_str(current_state));
 			handle_state(state);
+			ESP_LOGI(LOG_TAG, "handle_state complete: %s", state_to_str(current_state));
 		}
 
 		(void)xTaskDelayUntil(
@@ -216,6 +253,12 @@ inline void control_tick(const StateStruct_t &state) {
 	}
 	state.controller->loop();
 	control_signal = state.controller->get_control_point().voltage;
+	if (control_signal < 0.0f) {
+		control_signal = 0.0f;
+	} else if (control_signal > 24.0f) {
+		control_signal = 24.0f;
+		ESP_LOGW(LOG_TAG, "Control signal clamped to 24.0V");
+	}
 	ESP_LOGI(LOG_TAG, "Control point is: %.3e", control_signal);
 	ESP_LOGI(LOG_TAG, "Setpoint is     : %.3e", *state.setpoint);
 	xQueueOverwrite(queues.csignal_qh, &control_signal);
@@ -265,6 +308,9 @@ void windup_loop (const StateStruct_t &state) {
 	int64_t start_time = *state.windx_start;
 	int64_t curr_time  = esp_timer_get_time();
 
+	UBaseType_t highwater = uxTaskGetStackHighWaterMark(NULL);
+	ESP_LOGI(LOG_TAG, "windup_loop stack high water mark: %u", (unsigned)highwater);
+
 	if ( curr_time > start_time+WINDUP_PERIOD_us ) {
 		state.transition_handler->update_state(ControllerState_e::CONTROL);
 	}
@@ -288,7 +334,16 @@ void windown_loop(const StateStruct_t &state) {
 
 /* ###################################################### TRANSITION HANDLING */
 
-bool TransHandler_ft::operator()(ControllerState_e from, ControllerState_e to) {
+static bool controller_transition_callback(
+	ControllerState_e from,
+	ControllerState_e to,
+	void *context
+) {
+	ControllerTransitionContext *ctx = static_cast<ControllerTransitionContext*>(context);
+	if (!ctx) {
+		ESP_LOGE(LOG_TAG, "controller_transition_callback missing context");
+		return false;
+	}
 	ESP_LOGI(
 		LOG_TAG,
 		"Transitioning from %s to %s",
@@ -310,7 +365,7 @@ bool TransHandler_ft::operator()(ControllerState_e from, ControllerState_e to) {
 		if (IDLE == from) {
 			return false;
 		}
-		*windx_start = esp_timer_get_time();
+		*ctx->windx_start = esp_timer_get_time();
 		break;
 	default:
 		break;
@@ -415,7 +470,12 @@ task::controller::ControllerTask::ControllerTask()
 	, _speed_qh   ()
 	, _csignal_qh ()
 {
-	TaskArgs_t args {
+	TaskArgs_t *args = (TaskArgs_t*)std::malloc(sizeof(TaskArgs_t));
+	if (!args) {
+		ESP_LOGE(LOG_TAG, "Failed to allocate task args");
+		return;
+	}
+	*args = TaskArgs_t {
 		/* Task management variables */
 		._task_state_event_group_h = &_task_state_event_group_h,
 		._controller_sync_event_h  = &_controller_sync_event_group_h,
@@ -428,13 +488,13 @@ task::controller::ControllerTask::ControllerTask()
 		&_controller_state_event_group
 	);
 	_controller_sync_event_group_h = xEventGroupCreateStatic(
-		&_controller_state_event_group
+		&_controller_sync_event_group
 	);
 	xTaskCreate(
 		controller_task_fn,
 		"controller_task",
-		2048 + 512,
-		&args,
+		16384,
+		args,
 		3,
 		&_frtos_task_h
 	);

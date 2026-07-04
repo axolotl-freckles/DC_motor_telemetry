@@ -38,21 +38,32 @@ template <typename state_enum_t>
 class StateSwitcher {
 public:
 	using TransitionCallback_f =
-		std::function<bool (state_enum_t from, state_enum_t to)>;
+		bool (*)(state_enum_t from, state_enum_t to, void *context);
 	using TransErrCallback_f   =
-		std::function<void (state_enum_t from, state_enum_t to)>;
+		void (*)(state_enum_t from, state_enum_t to, void *context);
 
 	StateSwitcher(
 		EventGroupHandle_t   event_group_h,
 		EventBits_t          state_mask              = ~(EventBits_t)0,
-		TransitionCallback_f transition_callback     = TransitionCallback_f(),
-		TransErrCallback_f   transition_err_callback = TransErrCallback_f  ()
+		TransitionCallback_f transition_callback     = nullptr,
+		TransErrCallback_f   transition_err_callback = nullptr,
+		void                *transition_context      = nullptr
 	);
 
-	inline void set_trans_callback    (TransitionCallback_f transition_callback)
-	{ _trans_callback = transition_callback; }
-	inline void set_trans_err_callback(TransErrCallback_f   trans_err_callback)
-	{ _trans_callback = trans_err_callback; }
+	inline void set_trans_callback(
+		TransitionCallback_f transition_callback,
+		void *transition_context = nullptr
+	) {
+		_trans_callback = transition_callback;
+		_transition_context = transition_context;
+	}
+	inline void set_trans_err_callback(
+		TransErrCallback_f trans_err_callback,
+		void *transition_context = nullptr
+	) {
+		_trans_err_callback = trans_err_callback;
+		_transition_context = transition_context;
+	}
 	inline EventBits_t  state_mask() const { return _state_mask; }
 	inline EventBits_t& state_mask()       { return _state_mask; }
 
@@ -62,8 +73,9 @@ private:
 	EventGroupHandle_t   _event_group_handle = nullptr;
 	EventBits_t          _state_mask         = 0;
 	state_enum_t         _old_state;
-	TransitionCallback_f _trans_callback;
-	TransErrCallback_f   _trans_err_callback;
+	TransitionCallback_f _trans_callback    = nullptr;
+	TransErrCallback_f   _trans_err_callback = nullptr;
+	void                *_transition_context = nullptr;
 
 	StateSwitcher();
 	StateSwitcher(StateSwitcher&);

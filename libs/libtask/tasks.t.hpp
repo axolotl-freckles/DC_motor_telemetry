@@ -17,13 +17,15 @@ task::StateSwitcher<state_enum_t>::StateSwitcher(
 	EventGroupHandle_t   event_group_h,
 	EventBits_t          state_mask,
 	TransitionCallback_f transition_callback,
-	TransErrCallback_f   transition_err_callback
+	TransErrCallback_f   transition_err_callback,
+	void                *transition_context
 ) :
 	_event_group_handle(event_group_h),
 	_state_mask        (state_mask),
 	_old_state         (),
 	_trans_callback    (transition_callback),
-	_trans_err_callback(transition_err_callback)
+	_trans_err_callback(transition_err_callback),
+	_transition_context (transition_context)
 { }
 
 template <typename state_enum_t>
@@ -34,7 +36,7 @@ bool task::StateSwitcher<state_enum_t>::update_state(state_enum_t new_state) {
 
 	xEventGroupClearBits(_event_group_handle, curr_state);
 	if (_trans_callback) {
-		transition_ok =  _trans_callback(_old_state, new_state);
+		transition_ok =  _trans_callback(_old_state, new_state, _transition_context);
 	}
 
 	if (transition_ok) {
@@ -44,7 +46,7 @@ bool task::StateSwitcher<state_enum_t>::update_state(state_enum_t new_state) {
 	}
 
 	if (_trans_err_callback) {
-		_trans_err_callback(_old_state, new_state);
+		_trans_err_callback(_old_state, new_state, _transition_context);
 	}
 
 	xEventGroupSetBits(_event_group_handle, _old_state);
