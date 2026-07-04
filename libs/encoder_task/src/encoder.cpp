@@ -73,10 +73,16 @@ static void handle_error(const StateStruct_t &state);
 static void idle_loop  (const StateStruct_t &state);
 static void sample_loop(const StateStruct_t &state);
 
-static bool handle_transition(EncoderState_e from, EncoderState_e to);
+static bool handle_transition(EncoderState_e from, EncoderState_e to, void *ctx);
 
 void encoder_task_fn(void *args) {
-	char trans_hand_mem_space[sizeof(StateSwitcher<EncoderState_e>)] = {0};
+	void *trans_hand_mem_space = std::malloc(sizeof(StateSwitcher<EncoderState_e>));
+	if (!trans_hand_mem_space) {
+		ESP_LOGE(LOG_TAG, "Failed to allocate encoder transition storage");
+		vTaskDelay(pdMS_TO_TICKS(1000));
+		vTaskDelete(NULL);
+		return;
+	}
 	EventGroupHandle_t  encoder_state_event_group_h;
 	TaskArgs_t         *interface_attr     = (TaskArgs_t*)args;
 	TickType_t          previous_wake_time = xTaskGetTickCount();
@@ -98,8 +104,9 @@ void encoder_task_fn(void *args) {
 	};
 
 	*(interface_attr->_transition_handler) = transition_handler;
+	std::free(interface_attr);
 
-	transition_handler->set_trans_callback(handle_transition);
+	transition_handler->set_trans_callback(handle_transition, nullptr);
 
 	xEventGroupSetBits(encoder_state_event_group_h, INIT_OK);
 
@@ -159,7 +166,8 @@ void sample_loop(const StateStruct_t &state) {
 
 /* ###################################################### TRANSITION HANDLING */
 
-bool handle_transition(EncoderState_e from, EncoderState_e to) {
+bool handle_transition(EncoderState_e from, EncoderState_e to, void *ctx) {
+	(void)ctx;
 	ESP_LOGI(
 		LOG_TAG,
 		"Transitioning from %s to %s",
@@ -206,7 +214,12 @@ task::encoder::EncoderTask::EncoderTask()
 	/* Message interface variables */
 	, _speed_qh                   ()
 {
-	TaskArgs_t args {
+	TaskArgs_t *args = (TaskArgs_t*)std::malloc(sizeof(TaskArgs_t));
+	if (!args) {
+		ESP_LOGE(LOG_TAG, "Failed to allocate encoder task args");
+		return;
+	}
+	*args = TaskArgs_t {
 		/* Task management variables */
 		._task_state_event_group_h = &_task_state_event_group_h,
 		._transition_handler       = &_transition_handler,
@@ -218,9 +231,9 @@ task::encoder::EncoderTask::EncoderTask()
 	);
 	xTaskCreate(
 		encoder_task_fn,
-		"controller_task",
-		2048,
-		&args,
+		"encoder_task",
+		4096,
+		args,
 		3,
 		&_frtos_task_h
 	);
