@@ -51,7 +51,7 @@ public:
 protected:
 private:
 	dc_parameters _parameters;
-	float   _sample_time_s;
+	float         _sample_time_s;
 
 	dc_state      _state;
 };
@@ -95,10 +95,10 @@ protected:
 private:
 	dc_parameters    _parameters;
 	EstimationParams _es_params;
-	float      _sample_time_s;
+	float            _sample_time_s;
 
 	dc_state         _state;
-	float      _estimated_load;
+	float            _estimated_load;
 };
 
 }
