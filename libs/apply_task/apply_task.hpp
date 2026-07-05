@@ -42,9 +42,6 @@ public:
 	virtual ~ApplyTask();
 protected:
 private:
-	config_params      _config;
-	StaticEventGroup_t _apply_state_event_group;
-
 	ApplyTask();
 	ApplyTask(ApplyTask&);
 	ApplyTask(ApplyTask&&);

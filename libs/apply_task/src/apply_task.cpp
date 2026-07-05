@@ -33,12 +33,6 @@ static constexpr ledc_channel_t BOOST_CHANNEL      = (ledc_channel_t)2;
 static constexpr gpio_num_t BOOST_PIN = (gpio_num_t)LOW_GPIO;
 static constexpr gpio_num_t BUCK_PIN  = (gpio_num_t)HIGH_GPIO;
 
-
-struct ApplyTask_args
-{
-	EventGroupHandle_t *state_event_group_h;
-};
-
 struct StateStruct_t {
 	EventBits_t current_state = 0;
 };
@@ -54,8 +48,14 @@ const ledc_timer_config_t   pwm_timer_config = {
 	.deconfigure     = false
 };
 
-static QueueHandle_t      voltage_qh     = NULL;
-static EventGroupHandle_t state_event_gh = NULL;
+/* Task management variables */
+static StaticEventGroup_t apply_state_event_group;
+static EventGroupHandle_t state_event_gh = nullptr;
+
+/* Message interface variables */
+static QueueHandle_t      voltage_qh     = nullptr;
+
+/* Runtime variables */
 
 static void apply_task_fn (void* args);
 
@@ -66,13 +66,10 @@ static void idle_loop (StateStruct_t &state);
 static void apply_loop(StateStruct_t &state);
 
 void apply_task_fn (void* raw_args) {
-	ApplyTask_args *args = (ApplyTask_args*)raw_args;
 	StateStruct_t  state;
 	EventBits_t   current_state  = ApplyState_e::IDLE;
 	EventBits_t   previous_state = 0;
 	EventBits_t   state_delta    = 0;
-
-	state_event_gh = *args->state_event_group_h;
 
 	xEventGroupSetBits(state_event_gh, ApplyState_e::IDLE);
 
@@ -177,7 +174,6 @@ esp_err_t task::apply::ApplyTask::stop() {
 }
 
 void task::apply::ApplyTask::set_params(const config_params& params) {
-	_config.voltage_queue_h = params.voltage_queue_h;
 	voltage_qh              = params.voltage_queue_h;
 }
 
@@ -191,12 +187,10 @@ task::apply::ApplyTask::ApplyTask () : task::StateTask() {
 
 	/*      FreeRTOS Task      */
 	_task_state_event_group_h = xEventGroupCreateStatic (
-		&_apply_state_event_group
+		&apply_state_event_group
 	);
+	state_event_gh = _task_state_event_group_h;
 
-	ApplyTask_args task_fn_args = {
-		.state_event_group_h = &_task_state_event_group_h
-	};
 	/*      FreeRTOS Task      */
 
 	/*      LEDC Timer      */
@@ -264,8 +258,8 @@ task::apply::ApplyTask::ApplyTask () : task::StateTask() {
 	xTaskCreate (
 		apply_task_fn,
 		"apply_task",
-		1024,
-		&task_fn_args,
+		2048,
+		nullptr,
 		3,
 		&_frtos_task_h
 	);
