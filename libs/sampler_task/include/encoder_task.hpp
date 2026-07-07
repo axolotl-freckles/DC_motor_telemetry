@@ -11,6 +11,8 @@
 
 #include "tasks.hpp"
 
+#include "encoder.hpp"
+
 namespace task{
 
 namespace encoder {
@@ -34,6 +36,8 @@ public:
 	esp_err_t stop()  override;
 
 	EventBits_t get_state() override;
+
+	const Encoder &get_encoder() const;
 
 	virtual ~EncoderTask();
 private:
