@@ -4,7 +4,8 @@
 #include "esp_attr.h"
 
 static const char *TAG = "encoder";
-static Encoder *g_encoder_instance = nullptr;
+
+constexpr uint64_t IDLE_RESET_TIME_ms = 100000L;
 
 // ISR global en IRAM
 static void IRAM_ATTR encoder_isr_handler(void *arg) {
@@ -17,12 +18,10 @@ static void IRAM_ATTR encoder_isr_handler(void *arg) {
 Encoder::Encoder(gpio_num_t pin_a, gpio_num_t pin_b, uint16_t pulses_per_rev)
     : _pin_a(pin_a), _pin_b(pin_b), _pulses_per_rev(pulses_per_rev),
       _last_pulse_time_us(0), _pulse_interval_us(0), _direction(1) {
-    g_encoder_instance = this;
 }
 
 Encoder::~Encoder() {
     gpio_isr_handler_remove(_pin_a);
-    g_encoder_instance = nullptr;
 }
 
 void Encoder::init() {
@@ -34,7 +33,22 @@ void Encoder::init() {
     io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
 
     ESP_ERROR_CHECK(gpio_config(&io_conf));
-    gpio_install_isr_service(0);
+    esp_err_t install_result = gpio_install_isr_service(0);
+    switch (install_result) {
+        case ESP_OK:
+            break;
+        case ESP_ERR_INVALID_STATE:
+            ESP_LOGW(TAG, "gpio_install_isr_service called multiple times");
+            break;
+        default:
+            ESP_LOGE(TAG,
+                "Fatal error encountered while installing ISR service:\n"
+                "    ERRCODE: %s",
+                esp_err_to_name(install_result)
+            );
+            break;
+    }
+
     gpio_isr_handler_add(_pin_a, encoder_isr_handler, (void *)this);
 
     reset();
@@ -54,10 +68,10 @@ float Encoder::getRpm() const {
     uint64_t last_pulse = _last_pulse_time_us;
     int dir = _direction;
 
-    if ((now_us - last_pulse) > 100000) {
+    if ((now_us - last_pulse) > IDLE_RESET_TIME_ms) {
         return 0.0f;
     }
-    if (interval <= 0) {
+    if ( 0 == interval ) {
         return 0.0f;
     }
 
