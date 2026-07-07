@@ -1,5 +1,5 @@
 /**
- * @file encoder_task.hpp
+ * @file sampler_task.hpp
  * @author ACMAX (aavaloscorrales@gmail.com)
  * @brief
  * @version 0.1
