@@ -17,13 +17,13 @@
 
 using task::controller::ControllerTask;
 using task::controller::ControllerState_e;
-using task::encoder::EncoderTask;
+using task::sampler::SamplerTask;
 using task::apply::ApplyTask;
 
 extern "C" void app_main(void)
 {
 	ControllerTask *controller_task = &ControllerTask::get_instance();
-	EncoderTask    *encoder_task    = &EncoderTask::get_instance();
+	SamplerTask    *sampler_task    = &SamplerTask::get_instance();
 	ApplyTask      *apply_task      = &ApplyTask::get_instance();
 	ledc_fade_func_install(0);
 
@@ -35,14 +35,14 @@ extern "C" void app_main(void)
 		.speed_qh          = speed_qh,
 		.control_signal_qh = cpoint_qh
 	};
-	EncoderTask::config_params encoder_config = {
+	SamplerTask::config_params sampler_config = {
 		.speed_qh = speed_qh
 	};
 	ApplyTask::config_params apply_config = {
 		.voltage_queue_h = cpoint_qh
 	};
 	controller_task->set_params(controller_config);
-	encoder_task   ->set_params(encoder_config);
+	sampler_task   ->set_params(sampler_config);
 	apply_task     ->set_params(apply_config);
 
 	vTaskDelay(pdMS_TO_TICKS(1000));

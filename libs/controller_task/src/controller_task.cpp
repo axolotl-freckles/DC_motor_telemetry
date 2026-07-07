@@ -257,8 +257,8 @@ inline void control_tick() {
 
 void idle_loop   () {
 	ESP_LOGI(LOG_TAG, "Idling");
-	if ( ESP_OK != encoder::EncoderTask::get_instance().stop() ) {
-		ESP_LOGE(LOG_TAG, "Error while shutting down encoder");
+	if ( ESP_OK != sampler::SamplerTask::get_instance().stop() ) {
+		ESP_LOGE(LOG_TAG, "Error while shutting down sampler");
 	}
 	(void)xEventGroupWaitBits(
 		task_state_event_group_h,
@@ -268,8 +268,8 @@ void idle_loop   () {
 		portMAX_DELAY
 	);
 	/*:: WAIT END ::*/
-	if ( ESP_OK != encoder::EncoderTask::get_instance().start() ) {
-		ESP_LOGE(LOG_TAG, "Error starting encoder");
+	if ( ESP_OK != sampler::SamplerTask::get_instance().start() ) {
+		ESP_LOGE(LOG_TAG, "Error starting sampler");
 		xEventGroupSetBits(
 			task_state_event_group_h,
 			ControllerState_e::ERROR

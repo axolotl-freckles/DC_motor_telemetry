@@ -15,20 +15,20 @@
 
 namespace task{
 
-namespace encoder {
-	enum EncoderState_e : EventBits_t {
+namespace sampler {
+	enum SamplerState_e : EventBits_t {
 		IDLE     = 0b1 << 0,
 		SAMPLING = 0b1 << 1,
 		ERROR    = 0b1 << 12
 	};
 
-class EncoderTask : public StateTask {
+class SamplerTask : public StateTask {
 public:
 	struct config_params {
 		QueueHandle_t speed_qh;
 	};
 
-	static EncoderTask& get_instance();
+	static SamplerTask& get_instance();
 
 	void set_params(const config_params& params);
 
@@ -39,10 +39,10 @@ public:
 
 	const Encoder &get_encoder() const;
 
-	virtual ~EncoderTask();
+	virtual ~SamplerTask();
 private:
 
-	EncoderTask();
+	SamplerTask();
 };
 
 
