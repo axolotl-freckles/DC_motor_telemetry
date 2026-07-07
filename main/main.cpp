@@ -12,7 +12,7 @@
 
 #include "tasks.hpp"
 #include "controller_task.hpp"
-#include "encoder_task.hpp"
+#include "sampler_task.hpp"
 #include "apply_task.hpp"
 
 using task::controller::ControllerTask;

@@ -1,5 +1,5 @@
 /**
- * @file encoder.cpp
+ * @file sampler_task.cpp
  * @author ACMAX (aavaloscorrales@gmail.com)
  * @brief
  * @version 0.1
@@ -9,7 +9,7 @@
  *
  */
 
-#include "encoder_task.hpp"
+#include "sampler_task.hpp"
 
 #include <cstdlib>
 

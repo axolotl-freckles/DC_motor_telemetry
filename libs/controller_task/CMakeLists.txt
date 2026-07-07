@@ -9,7 +9,7 @@ idf_component_register (
 		"globals"
 		"libtask"
 		"controller"
-		"encoder_task"
+		"sampler_task"
 		"apply_task"
 		"telemetry_task"
 	)

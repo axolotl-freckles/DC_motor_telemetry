@@ -20,7 +20,7 @@
 #include "controllers/pid_controller.hpp"
 #include "controllers/open_loop_controller.hpp"
 #include "controllers/fixed_sp_controller.hpp"
-#include "encoder_task.hpp"
+#include "sampler_task.hpp"
 #include "apply_task.hpp"
 #include "telemetry_task.hpp"
 
