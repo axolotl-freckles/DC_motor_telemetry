@@ -16,8 +16,12 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 
+#include "globals.hpp"
+#include "dc_plant.hpp"
+
 using namespace task;
 using namespace task::sampler;
+using namespace DCPlant;
 
 const char LOG_TAG[] = "sampler";
 
@@ -39,6 +43,11 @@ static StateSwitcher<SamplerState_e> *transition_handler = nullptr;
 
 /* Message interface variables */
 static QueueHandle_t                  speed_qh           = nullptr;
+
+static EulerDCMotorModel mock_dc_motor(SAMPLE_PARAMS, MODEL_SIM_TIME_s);
+static DCMotorObserver   observer(SAMPLE_PARAMS, SAMPLE_OBS_PRMS, MODEL_SIM_TIME_s);
+static uint64_t          last_interpolation_us = 0L;
+static float             last_voltage          = 0.0f;
 
 /* Runtime variables */
 
@@ -66,6 +75,8 @@ static void idle_loop  (const StateStruct_t &state);
 static void sample_loop(const StateStruct_t &state);
 
 static bool handle_transition(SamplerState_e from, SamplerState_e to);
+
+static void interpolate_simulation();
 
 void sampler_task_fn(void *args) {
 	char trans_hand_mem_space[sizeof(StateSwitcher<SamplerState_e>)] = {0};
@@ -140,6 +151,18 @@ void sample_loop(const StateStruct_t &state) {
 	xQueueOverwrite(speed_qh, &speed_sample);
 }
 
+static void interpolate_simulation() {
+	const uint64_t now_us = esp_timer_get_time();
+	const uint64_t elapsed_time_ms = (now_us-last_interpolation_us)/1000L;
+	const uint32_t missing_step_n  = (uint32_t)elapsed_time_ms/MODEL_SIM_TIME_ms;
+
+	for (uint32_t i=0; i<missing_step_n; i++) {
+		observer     .step(last_voltage, mock_dc_motor.state());
+		mock_dc_motor.step(last_voltage, 1.0f);
+	}
+	last_interpolation_us = now_us;
+}
+
 /* ###################################################### TRANSITION HANDLING */
 
 bool handle_transition(SamplerState_e from, SamplerState_e to) {
@@ -149,6 +172,12 @@ bool handle_transition(SamplerState_e from, SamplerState_e to) {
 		state_to_str(from),
 		state_to_str(to)
 	);
+	if ( SamplerState_e::SAMPLING == to ) {
+		last_interpolation_us = esp_timer_get_time();
+		last_voltage          = 0.0f;
+		observer     .reset();
+		mock_dc_motor.reset();
+	}
 	return true;
 }
 
@@ -216,6 +245,30 @@ void task::sampler::SamplerTask::set_params(const config_params& params) {
 
 EventBits_t task::sampler::SamplerTask::get_state() {
 	return xEventGroupGetBits(_task_state_event_group_h) & PUBLIC_STATE_MASK;
+}
+
+float task::sampler::SamplerTask::current_w()  {
+	interpolate_simulation();
+	return mock_dc_motor.state().w_rad_s;
+}
+float task::sampler::SamplerTask::current_TL() {
+	interpolate_simulation();
+	return observer.estimated_load();
+}
+float task::sampler::SamplerTask::current_TI() {
+	return observer.state().I_amp;
+}
+float task::sampler::SamplerTask::current_Volt() {
+	return last_voltage;
+}
+float task::sampler::SamplerTask::estimated_load() {
+	return observer.estimated_load();
+}
+// const task::sampler::SamplerTask::Encoder &get_encoder() const;
+
+void task::sampler::SamplerTask::set_applied_voltage(float applied_voltage) {
+	interpolate_simulation();
+	last_voltage = applied_voltage;
 }
 
 task::sampler::SamplerTask::~SamplerTask() {}

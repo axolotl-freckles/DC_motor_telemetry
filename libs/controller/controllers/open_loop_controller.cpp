@@ -76,8 +76,10 @@ void OpenLoop::loop () {
 			.timestamp      = now*1e-6f,
 			.setpoint       = _voltage_setpoint,
 			.set_voltage    = _voltage_setpoint,
-			.w_rad_s        = _estimator.state().w_rad_s,
-			.I_amp          = _estimator.state().I_amp,
+			// .w_rad_s        = _estimator.state().w_rad_s,
+			.w_rad_s        = read_speed_rad_s(),
+			//.I_amp          = _estimator.state().I_amp,
+			.I_amp          = read_current(),
 			.estimated_load = _observer.estimated_load()
 		};
 		xQueueSend(

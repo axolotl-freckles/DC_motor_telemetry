@@ -11,5 +11,6 @@ idf_component_register (
 		"globals"
 		"time_series"
 		"DC_model"
+		"sampler_task"
 		"telemetry_task"
 	)

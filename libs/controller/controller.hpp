@@ -32,8 +32,10 @@ public:
 	void set_windup  (const Windup   *windup);
 	void set_winddown(const Winddown *winddown);
 
-	static float read_pcb_current(void);
-	static float read_source_voltage(void);
+	static float read_current(void);
+	static float read_voltage(void);
+	static float read_speed_rad_s(void);
+	static float estimated_load_nm(void);
 
 	static float get_sample_time_s(void);
 	static float get_sample_frequency_hz(void);

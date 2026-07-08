@@ -7,5 +7,6 @@ idf_component_register (
 		"driver"
 		"globals"
 		"libtask"
+		"sampler_task"
 	)
 

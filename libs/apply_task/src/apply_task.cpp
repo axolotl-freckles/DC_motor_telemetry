@@ -14,6 +14,7 @@
 #include "driver/ledc.h"
 
 #include "globals.hpp"
+#include "sampler_task.hpp"
 
 using namespace task::apply;
 
@@ -132,6 +133,7 @@ void apply_loop(StateStruct_t &state) {
 	dutycycle = std::min(dutycycle, 0.9f);
 	ledc_set_duty_and_update(LEDC_SPEED_MODE, BUCK_CHANNEL, dutycycle*PWM_MAX_VAL , 0);
 	ledc_set_duty_and_update(LEDC_SPEED_MODE, BUCK_CHANNEL, (1-dutycycle)*PWM_MAX_VAL , 0);
+	task::sampler::SamplerTask::get_instance().set_applied_voltage( 24.0f*dutycycle/(1-dutycycle) );
 }
 
 /* ###################################################### TRANSITION HANDLING */
