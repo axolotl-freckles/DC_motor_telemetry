@@ -18,6 +18,7 @@
 
 #include "globals.hpp"
 #include "dc_plant.hpp"
+#include <cmath.h>
 
 using namespace task;
 using namespace task::sampler;
@@ -44,6 +45,7 @@ static StateSwitcher<SamplerState_e> *transition_handler = nullptr;
 /* Message interface variables */
 static QueueHandle_t                  speed_qh           = nullptr;
 
+static Encoder encoder(4, 5, 1600);
 static EulerDCMotorModel mock_dc_motor(SAMPLE_PARAMS, MODEL_SIM_TIME_s);
 static DCMotorObserver   observer(SAMPLE_PARAMS, SAMPLE_OBS_PRMS, MODEL_SIM_TIME_s);
 static uint64_t          last_interpolation_us = 0L;
@@ -96,6 +98,8 @@ void sampler_task_fn(void *args) {
 	transition_handler->set_trans_callback(handle_transition);
 
 	xEventGroupSetBits(sampler_state_event_group_h, INIT_OK);
+
+	encoder.init();
 
 	while (true) {
 		current_state = xEventGroupGetBits(sampler_state_event_group_h);
@@ -249,7 +253,9 @@ EventBits_t task::sampler::SamplerTask::get_state() {
 
 float task::sampler::SamplerTask::current_w()  {
 	interpolate_simulation();
-	return mock_dc_motor.state().w_rad_s;
+	//return mock_dc_motor.state().w_rad_s;
+
+	return encoder.getRpm() * 2.0f * M_PI / 60.0f;
 }
 float task::sampler::SamplerTask::current_TL() {
 	interpolate_simulation();

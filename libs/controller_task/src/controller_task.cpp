@@ -31,7 +31,7 @@
 #define CONTROLLER_TYPE_OPEN 1
 #define CONTROLLER_TYPE_FIXD 2
 
-#define CONTROLLER_TYPE CONTROLLER_TYPE_OPEN
+#define CONTROLLER_TYPE CONTROLLER_TYPE_FIXD
 
 using namespace task;
 using namespace task::controller;

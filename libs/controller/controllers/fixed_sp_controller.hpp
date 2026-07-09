@@ -39,11 +39,6 @@ public:
 
 	void setup() override;
 	void loop()  override;
-
-	DCPlant::EulerDCMotorModel       &model   ()       { return _estimator; }
-	DCPlant::DCMotorObserver         &observer()       { return _observer;  }
-	const DCPlant::EulerDCMotorModel &model   () const { return _estimator; }
-	const DCPlant::DCMotorObserver   &observer() const { return _observer;  }
 protected:
 private:
 	static int constexpr       N_R = 6;
@@ -57,8 +52,6 @@ private:
 	float                      _z            =  0.0f;
 	int                        _current_setpoint = 0;
 	uint64_t                   _start_time_us= 0L;
-	DCPlant::EulerDCMotorModel _estimator;
-	DCPlant::DCMotorObserver   _observer;
 
 	inline float get_x(float time) {
 		return (time - _setpoints[_current_setpoint].start_time)
@@ -73,18 +66,6 @@ private:
 		}
 		return bezier;
 	}
-
-	static void interpolate_simulation(
-		uint64_t                   &last_interpolation_us,
-		DCPlant::EulerDCMotorModel &model,
-		DCPlant::DCMotorObserver   &observer,
-		float    const              amature_voltage,
-		float    const              load,
-		Integrator *const integrator_w = nullptr,
-		Integrator *const integrator_I = nullptr,
-		Derivator  *const derivator_w  = nullptr,
-		Derivator  *const derivator_I  = nullptr
-	);
 };
 
 inline bool operator< (
@@ -136,6 +117,8 @@ void FixedSPController<n_setpoints>::loop() {
 	float voltage_setpoint  = get_control_point().voltage;
 	const float start_delta = esp_timer_get_time()*1e-6 - _start_time_s;
 	float reference_w = 0.0f;
+	const float speed_w = read_speed_rad_s();
+	const float current = read_current();
 
 	while (   _current_setpoint < (n_setpoints-1)
 	    && start_delta > _setpoints[_current_setpoint+1].start_time
@@ -163,8 +146,8 @@ void FixedSPController<n_setpoints>::loop() {
 		SIMULATED_LOAD
 	);
 
-	voltage_setpoint = -_K1*_estimator.state().w_rad_s
-	                   -_K2*_observer.state().I_amp
+	voltage_setpoint = -_K1*speed_w
+	                   -_K2*current
 	                   -_Ki*_z
 	                   +_Nu*reference_w;
 	_z += _estimator.state().w_rad_s - reference_w;
@@ -174,9 +157,9 @@ void FixedSPController<n_setpoints>::loop() {
 			.timestamp      = start_delta,
 			.setpoint       = reference_w,
 			.set_voltage    = voltage_setpoint,
-			.w_rad_s        = _estimator.state().w_rad_s,
-			.I_amp          = _estimator.state().I_amp,
-			.estimated_load = _observer.estimated_load()
+			.w_rad_s        = speed_w,
+			.I_amp          = current,
+			.estimated_load = estimated_load_nm()
 		};
 		xQueueSend(
 			task::telemetry::TelemetryTask::get_instance().data_queue(),
@@ -204,32 +187,4 @@ void FixedSPController<n_setpoints>::loop() {
 	n_ticks++;
 
 	set_voltage(voltage_setpoint);
-}
-
-template <int n_setpoints>
-void FixedSPController<n_setpoints>::interpolate_simulation(
-	uint64_t                   &last_interpolation_us,
-	DCPlant::EulerDCMotorModel &model,
-	DCPlant::DCMotorObserver   &observer,
-	float    const              amature_voltage,
-	float    const              load,
-	Integrator *const integrator_w,
-	Integrator *const integrator_I,
-	Derivator  *const derivator_w,
-	Derivator  *const derivator_I
-) {
-	const uint64_t now_us          = esp_timer_get_time();
-	const uint64_t elapsed_time_ms = (now_us-last_interpolation_us)/1000L;
-	const uint32_t missing_step_n  = (uint32_t)elapsed_time_ms/MODEL_SIM_TIME_ms;
-
-	for (uint32_t i=0; i<missing_step_n; i++) {
-		if (derivator_w)  { derivator_w->operator()(model.state().w_rad_s); }
-		if (derivator_I)  { derivator_I->operator()(model.state().I_amp);   }
-		if (integrator_w) { integrator_w->operator()(model.state().w_rad_s); }
-		if (integrator_I) { integrator_I->operator()(model.state().I_amp);   }
-
-		observer.step(amature_voltage, model.state());
-		model   .step(amature_voltage, load);
-	}
-	last_interpolation_us = now_us;
 }
