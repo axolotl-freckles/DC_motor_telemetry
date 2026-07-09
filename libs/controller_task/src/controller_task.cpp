@@ -15,6 +15,9 @@
 
 #include "esp_log.h"
 #include "esp_timer.h"
+#include <cstdlib>
+#include "freertos/task.h"
+#include "esp_heap_caps.h"
 
 #include "dc_plant.hpp"
 #include "controllers/pid_controller.hpp"
@@ -138,7 +141,7 @@ static void control_task_fn(void *args) {
 
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_PID
 	std::function<float ()> error_func = [&setpoint] () -> float {
-		return 0.0f - setpoint;
+		return setpoint;
 	};
 
 	controller = new (controller_mem_space) PID(error_func, 3.0f, 2.0f, 1.0f);
