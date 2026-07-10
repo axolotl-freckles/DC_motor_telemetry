@@ -27,6 +27,8 @@ static constexpr int            PWM_RESOLUTION   = 9;
 static constexpr uint32_t       PWM_MAX_VAL      = (1<<PWM_RESOLUTION) - 1;
 static constexpr uint32_t       PWM_FREQUENCY_Hz = 100000;
 static constexpr float          voltageBattery    = 25.0f;
+static constexpr float          DUTY_MIN          = 0.10f;
+static constexpr float          DUTY_MAX          = 0.90f;
 static constexpr int            HIGH_GPIO        = 18;
 static constexpr int            LOW_GPIO         = 21;
 static constexpr ledc_channel_t BUCK_CHANNEL     = (ledc_channel_t)1;
@@ -130,8 +132,8 @@ void apply_loop(StateStruct_t &state) {
 	}
 
 	dutycycle = voltage / (voltage + voltageBattery);
-	dutycycle = std::max(dutycycle, 0.1f);
-	dutycycle = std::min(dutycycle, 0.9f);
+	dutycycle = std::max(dutycycle, DUTY_MIN);
+	dutycycle = std::min(dutycycle, DUTY_MAX);
 	ledc_set_duty(LEDC_SPEED_MODE, BUCK_CHANNEL, dutycycle * PWM_MAX_VAL);
 	ledc_update_duty(LEDC_SPEED_MODE, BUCK_CHANNEL);
 	ledc_set_duty(LEDC_SPEED_MODE, BOOST_CHANNEL, dutycycle * PWM_MAX_VAL);

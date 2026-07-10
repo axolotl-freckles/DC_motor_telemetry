@@ -13,10 +13,7 @@
 #include <limits>
 
 #include "sampler_task.hpp"
-
-// TODO: remove this constant and define it somewhere else, this was just to
-//       test the library import
-constexpr float FIRMWARE_TICK_INTERVAL_ms = 100;
+#include "globals.hpp"
 
 Controller::Controller() :
 	  windup (nullptr)
@@ -49,8 +46,8 @@ float Controller::estimated_load_nm(void) {
 }
 
 float Controller::get_sample_time_s(void) {
-	return FIRMWARE_TICK_INTERVAL_ms * 1e-3;
+	return SAMPLE_TIME_s;
 }
 float Controller::get_sample_frequency_hz(void) {
-	return 1.0 / (FIRMWARE_TICK_INTERVAL_ms * 1.e-3f);
+	return 1.0f / SAMPLE_TIME_s;
 }

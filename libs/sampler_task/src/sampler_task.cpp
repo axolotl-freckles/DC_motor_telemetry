@@ -26,7 +26,7 @@ using namespace DCPlant;
 
 const char LOG_TAG[] = "sampler";
 
-constexpr TickType_t ENCODER_TICK_TIME_ms = 2000;
+constexpr TickType_t ENCODER_TICK_TIME_ms = SAMPLE_TIME_ms;
 
 constexpr EventBits_t INIT_OK           = 0b1 << 11;
 constexpr EventBits_t STATE_MASK        = ~(INIT_OK | SamplerState_e::ERROR);
@@ -147,11 +147,7 @@ void idle_loop  (const StateStruct_t &state) {
 	return;
 }
 void sample_loop(const StateStruct_t &state) {
-	float speed_sample = 200.0f + std::rand()%100;
-
-	speed_sample /= 3.0f;
-	ESP_LOGI(LOG_TAG, "speed: %.3e", speed_sample);
-
+	const float speed_sample = encoder.getRpm() * 2.0f * M_PI / 60.0f;
 	xQueueOverwrite(speed_qh, &speed_sample);
 }
 

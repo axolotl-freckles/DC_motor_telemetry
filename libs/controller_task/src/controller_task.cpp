@@ -31,7 +31,7 @@
 #define CONTROLLER_TYPE_OPEN 1
 #define CONTROLLER_TYPE_FIXD 2
 
-#define CONTROLLER_TYPE CONTROLLER_TYPE_FIXD
+#define CONTROLLER_TYPE CONTROLLER_TYPE_PID
 
 using namespace task;
 using namespace task::controller;
@@ -45,7 +45,7 @@ constexpr float      WINDUP_PERIODf_s        = WINDUP_PERIOD_us *1e-6f;
 constexpr float      WINDOWN_PERIODf_s       = WINDOWN_PERIOD_us*1e-6f;
 constexpr int64_t    WATCHDOG_THRESH_us      = 1000;
 constexpr int64_t    STOP_TIMEOUT_us         = TELEMETRY_TICK_TIME_ms*1000LL;
-constexpr float      DEFAULT_SETPOINT        = 30.0f;
+constexpr float      DEFAULT_SETPOINT        = 3.0f;
 
 constexpr EventBits_t INIT_OK           = 0b1 << 11;
 constexpr EventBits_t STATE_MASK        = ~(INIT_OK | ControllerState_e::ERROR);
@@ -140,12 +140,12 @@ static void control_task_fn(void *args) {
 	transition_handler->update_state(ControllerState_e::IDLE);
 
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_PID
-	std::function<float ()> error_func = [&setpoint] () -> float {
-		return setpoint;
+	std::function<float ()> error_func = [] () -> float {
+		return setpoint - Controller::read_speed_rad_s();
 	};
 
-	dc_controller = new (controller_mem_space) PID(error_func, 3.0f, 2.0f, 1.0f);
-	((PID*)dc_controller)->set_integrator_saturators(10.0f);
+	dc_controller = new (controller_mem_space) PID(error_func, 0.8f, 0.2f, 0.0f);
+	((PID*)dc_controller)->set_integrator_saturators(2.5f);
 #endif
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
 	const float voltage_setpoint = 30.0f;
@@ -203,7 +203,6 @@ static void control_task_fn(void *args) {
 }
 
 void handle_state() {
-	ESP_LOGI(LOG_TAG, "state: %s", state_to_str(current_task_state & STATE_MASK));
 	switch (current_task_state & STATE_MASK) {
 		case ControllerState_e::IDLE:
 			idle_loop   ();
@@ -253,8 +252,6 @@ inline void control_tick() {
 #endif
 	dc_controller->loop();
 	control_signal = dc_controller->get_control_point().voltage;
-	ESP_LOGI(LOG_TAG, "Control point is: %.3e", control_signal);
-	ESP_LOGI(LOG_TAG, "Setpoint is     : %.3e", setpoint);
 	xQueueOverwrite(csignal_qh, &control_signal);
 }
 
@@ -265,7 +262,7 @@ void idle_loop   () {
 	}
 	(void)xEventGroupWaitBits(
 		task_state_event_group_h,
-		ControllerState_e::WINDUP | ControllerState_e::ERROR,
+		ControllerState_e::CONTROL | ControllerState_e::WINDUP | ControllerState_e::ERROR,
 		pdFALSE,
 		pdFALSE,
 		portMAX_DELAY
@@ -420,7 +417,7 @@ esp_err_t task::controller::ControllerTask::start() {
 	}
 	if (ESP_OK == can_start && transition_handler) {
 		transition_ok =
-			transition_handler->update_state(ControllerState_e::WINDUP);
+			transition_handler->update_state(ControllerState_e::CONTROL);
 		if ( !transition_ok ) {
 			ESP_LOGE(LOG_TAG, "Start transition failed");
 			return ESP_ERR_NOT_ALLOWED;
@@ -442,12 +439,8 @@ esp_err_t task::controller::ControllerTask::stop() {
 		ESP_LOGW(LOG_TAG, "Already stopped!");
 		return ESP_OK;
 	}
-	if (current_state & ControllerState_e::WINDOWN) {
-		ESP_LOGE(LOG_TAG, "On windown!");
-		return ESP_ERR_INVALID_STATE;
-	}
 	if (transition_handler) {
-		transition_handler->update_state(ControllerState_e::WINDOWN);
+		transition_handler->update_state(ControllerState_e::IDLE);
 	}
 	return ESP_OK;
 }
