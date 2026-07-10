@@ -144,8 +144,8 @@ static void control_task_fn(void *args) {
 		return setpoint;
 	};
 
-	controller = new (controller_mem_space) PID(error_func, 3.0f, 2.0f, 1.0f);
-	((PID*)controller)->set_integrator_saturators(10.0f);
+	dc_controller = new (controller_mem_space) PID(error_func, 3.0f, 2.0f, 1.0f);
+	((PID*)dc_controller)->set_integrator_saturators(10.0f);
 #endif
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
 	const float voltage_setpoint = 30.0f;
@@ -160,7 +160,7 @@ static void control_task_fn(void *args) {
 		{.start_time=3.3f, .trans_time=0.5f, .setpoint=375.0f}
 	};
 	float rs[] = { 252.0f, -1050.0f, 1800.0f, -1575.0f, 700.0f, -126.0f};
-	controller = new (controller_mem_space) FixedSPController<N_SETPOINTS>(
+	dc_controller = new (controller_mem_space) FixedSPController<N_SETPOINTS>(
 		setpoints, rs,
 		3.1758f,
 		0.4152f,

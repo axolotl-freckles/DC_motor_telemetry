@@ -260,7 +260,7 @@ task::apply::ApplyTask::ApplyTask () : task::StateTask() {
 	xTaskCreate (
 		apply_task_fn,
 		"apply_task",
-		2048,
+		4096,
 		nullptr,
 		3,
 		&_frtos_task_h

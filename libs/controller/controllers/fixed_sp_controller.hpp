@@ -88,9 +88,7 @@ FixedSPController<n_setpoints>::FixedSPController(
 	_K1(K1),
 	_K2(K2),
 	_Ki(Ki),
-	_Nu(Nu),
-	_estimator(SAMPLE_PARAMS, MODEL_SIM_TIME_s),
-	_observer (SAMPLE_PARAMS, SAMPLE_OBS_PRMS, MODEL_SIM_TIME_s)
+	_Nu(Nu)
 {
 	if (!setpoints || !r_values) {
 		return;
@@ -103,8 +101,6 @@ FixedSPController<n_setpoints>::FixedSPController(
 }
 template <int n_setpoints>
 void FixedSPController<n_setpoints>::setup() {
-	_estimator.reset();
-	_observer .reset();
 	_start_time_us = esp_timer_get_time();
 	_start_time_s  = _start_time_us*1e-6;
 	_z = 0.0f;
@@ -138,19 +134,13 @@ void FixedSPController<n_setpoints>::loop() {
 		reference_w = diff_setpoints*get_bezier(start_delta);
 	}
 
-	interpolate_simulation (
-		_start_time_us,
-		_estimator,
-		_observer,
-		voltage_setpoint,
-		SIMULATED_LOAD
-	);
+
 
 	voltage_setpoint = -_K1*speed_w
 	                   -_K2*current
 	                   -_Ki*_z
 	                   +_Nu*reference_w;
-	_z += _estimator.state().w_rad_s - reference_w;
+	_z += speed_w - reference_w;
 
 	if (n_ticks >= 4) {
 		task::telemetry::telemetry_data_t package = {

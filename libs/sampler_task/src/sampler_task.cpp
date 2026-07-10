@@ -18,7 +18,7 @@
 
 #include "globals.hpp"
 #include "dc_plant.hpp"
-#include <cmath.h>
+#include <cmath>
 
 using namespace task;
 using namespace task::sampler;
@@ -45,7 +45,7 @@ static StateSwitcher<SamplerState_e> *transition_handler = nullptr;
 /* Message interface variables */
 static QueueHandle_t                  speed_qh           = nullptr;
 
-static Encoder encoder(4, 5, 1600);
+static Encoder encoder((gpio_num_t)4, (gpio_num_t)5, 1600);
 static EulerDCMotorModel mock_dc_motor(SAMPLE_PARAMS, MODEL_SIM_TIME_s);
 static DCMotorObserver   observer(SAMPLE_PARAMS, SAMPLE_OBS_PRMS, MODEL_SIM_TIME_s);
 static uint64_t          last_interpolation_us = 0L;
@@ -270,7 +270,10 @@ float task::sampler::SamplerTask::current_Volt() {
 float task::sampler::SamplerTask::estimated_load() {
 	return observer.estimated_load();
 }
-// const task::sampler::SamplerTask::Encoder &get_encoder() const;
+
+const Encoder &task::sampler::SamplerTask::get_encoder() const {
+	return encoder;
+}
 
 void task::sampler::SamplerTask::set_applied_voltage(float applied_voltage) {
 	interpolate_simulation();
