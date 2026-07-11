@@ -29,8 +29,8 @@ public:
 	virtual void loop()  = 0;
 
 	void set_voltage (const float voltage);
-	void set_windup  (const Windup   *windup);
-	void set_winddown(const Winddown *winddown);
+	void set_windup  (Windup     *windup);
+	void set_winddown(Winddown   *winddown);
 
 	static float read_current(void);
 	static float read_voltage(void);
@@ -44,11 +44,13 @@ public:
 	inline const control::ControlPoint get_control_point() {
 		return control_point;
 	}
-	inline const Windup   *get_windup()   { return windup;  }
-	inline const Winddown *get_winddown() { return winddown; }
+	inline const Windup   *get_windup()   const { return windup;   }
+	inline const Winddown *get_winddown() const { return winddown; }
+	inline       Windup   *get_windup()         { return windup;   }
+	inline       Winddown *get_winddown()       { return winddown; }
 
 private:
 	control::ControlPoint control_point;
-	const Windup   *windup;
-	const Winddown *winddown;
+	Windup   *windup   = nullptr;
+	Winddown *winddown = nullptr;
 };

@@ -17,9 +17,12 @@
 #include "esp_timer.h"
 
 #include "dc_plant.hpp"
+#include "controller.hpp"
 #include "controllers/pid_controller.hpp"
 #include "controllers/open_loop_controller.hpp"
 #include "controllers/fixed_sp_controller.hpp"
+#include "windups/LinearWindup.hpp"
+#include "winddowns/LinearWinddown.hpp"
 #include "sampler_task.hpp"
 #include "apply_task.hpp"
 #include "telemetry_task.hpp"
@@ -38,8 +41,8 @@ const char LOG_TAG[] = "controller";
 constexpr TickType_t TELEMETRY_TICK_TIME_ms = SAMPLE_TIME_ms;
 constexpr int64_t    WINDUP_PERIOD_us        = 1500000;
 constexpr int64_t    WINDOWN_PERIOD_us       = 1500000;
-constexpr float      WINDUP_PERIODf_s        = WINDUP_PERIOD_us *1e-6f;
-constexpr float      WINDOWN_PERIODf_s       = WINDOWN_PERIOD_us*1e-6f;
+constexpr float      WINDUP_PERIOD_s         = WINDUP_PERIOD_us *1e-6f;
+constexpr float      WINDOWN_PERIOD_s        = WINDOWN_PERIOD_us*1e-6f;
 constexpr int64_t    WATCHDOG_THRESH_us      = 1000;
 constexpr int64_t    STOP_TIMEOUT_us         = TELEMETRY_TICK_TIME_ms*1000LL;
 constexpr float      DEFAULT_SETPOINT        = 30.0f;
@@ -65,14 +68,16 @@ static QueueHandle_t csignal_qh  = nullptr;
 /* Runtime variables */
 static EventBits_t   current_task_state = 0;
 static float         setpoint           = 0.0f;
-static float         windwn_setpoint    = 0.0f;
 static int64_t       windx_start        = 0L;
 static Controller  * dc_controller      = nullptr;
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
 static QueueHandle_t                      open_loop_voltage_qh = nullptr;
 static DCPlant::EulerDCMotorModel const * motor_model          = nullptr;
 #endif
-
+static Windup         * current_windup   = nullptr;
+static Winddown       * current_winddown = nullptr;
+static LinearWindup     default_windup  (WINDUP_PERIOD_s, 0.0f, DEFAULT_SETPOINT);
+static LinearWinddown   default_winddown(WINDOWN_PERIOD_s, DEFAULT_SETPOINT, 0.0f);
 
 static void control_task_fn(void *args);
 
@@ -125,7 +130,6 @@ static void control_task_fn(void *args) {
 
 	current_task_state   = ControllerState_e::IDLE;
 	setpoint        = 0.0f;
-	windwn_setpoint = 0.0f;
 	windx_start     = 0;
 
 	(void)telemetry::TelemetryTask::get_instance();
@@ -186,7 +190,7 @@ static void control_task_fn(void *args) {
 		}
 		else {
 			if (state_delta & current_task_state & ControllerState_e::WINDOWN) {
-				windwn_setpoint = setpoint;
+				current_winddown->set_st_setpoint(setpoint);
 			}
 			handle_state();
 		}
@@ -282,6 +286,10 @@ void idle_loop   () {
 			ControllerState_e::ERROR
 		);
 	}
+	Windup   *controller_windup   = dc_controller->get_windup  ();
+	Winddown *controller_winddown = dc_controller->get_winddown();
+	current_windup   = controller_windup?   controller_windup   : &default_windup;
+	current_winddown = controller_winddown? controller_winddown : &default_winddown;
 	dc_controller->setup();
 	windx_start = esp_timer_get_time();
 }
@@ -307,12 +315,12 @@ void windup_loop () {
 	const int64_t curr_time    = esp_timer_get_time();
 	const float   elapsed_time = (curr_time - windx_start)*1e-6f;
 
-	if ( curr_time > windx_start + WINDUP_PERIOD_us ) {
+	if ( elapsed_time > current_windup->period() ) {
 		transition_handler->update_state(ControllerState_e::CONTROL);
-		setpoint = DEFAULT_SETPOINT;
+		setpoint = current_windup->get_en_setpoint();
 	}
 	else {
-		setpoint = DEFAULT_SETPOINT*elapsed_time/WINDOWN_PERIODf_s;
+		setpoint = current_windup->step(elapsed_time);
 	}
 
 	ESP_LOGI(LOG_TAG, "Windup setpoint: %.3e", setpoint);
@@ -322,12 +330,12 @@ void windown_loop() {
 	const int64_t curr_time    = esp_timer_get_time();
 	const float   elapsed_time = (curr_time - windx_start)*1e-6f;
 
-	if ( curr_time > windx_start + WINDOWN_PERIOD_us ) {
+	if ( elapsed_time > current_winddown->period() ) {
 		transition_handler->update_state(ControllerState_e::IDLE);
-		setpoint = 0.0f;
+		setpoint = current_winddown->get_en_setpoint();
 	}
 	else {
-		setpoint = windwn_setpoint*(1.0f - elapsed_time/WINDOWN_PERIODf_s);
+		setpoint = current_winddown->step(elapsed_time);
 	}
 
 	ESP_LOGI(LOG_TAG, "Windown setpoint: %.3e", setpoint);

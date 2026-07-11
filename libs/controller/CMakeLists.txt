@@ -5,6 +5,10 @@ idf_component_register (
 		"windup.cpp"
 		"controllers/pid_controller.cpp"
 		"controllers/open_loop_controller.cpp"
+		"windups/NoWindup.cpp"
+		"windups/LinearWindup.cpp"
+		"winddowns/NoWinddown.cpp"
+		"winddowns/LinearWinddown.cpp"
 	INCLUDE_DIRS "."
 	REQUIRES
 		"esp_timer"
