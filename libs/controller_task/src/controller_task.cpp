@@ -46,6 +46,7 @@ constexpr float      WINDOWN_PERIOD_s        = WINDOWN_PERIOD_us*1e-6f;
 constexpr int64_t    WATCHDOG_THRESH_us      = 1000;
 constexpr int64_t    STOP_TIMEOUT_us         = TELEMETRY_TICK_TIME_ms*1000LL;
 constexpr float      DEFAULT_SETPOINT        = 30.0f;
+constexpr float      SP_DELTA_THRESHOLD      =  0.1f;
 
 constexpr EventBits_t INIT_OK           = 0b1 << 11;
 constexpr EventBits_t STATE_MASK        = ~(INIT_OK | ControllerState_e::ERROR);
@@ -204,6 +205,7 @@ void handle_state() {
 			windup_loop ();
 			break;
 		case ControllerState_e::WINDOWN:
+		case ControllerState_e::STOPPING:
 			windown_loop();
 			break;
 		default:
@@ -281,11 +283,12 @@ void idle_loop   () {
 }
 void control_loop() {
 	int64_t    curr_time       = esp_timer_get_time();
+	float      dequed_setpoint = 0.0f;
 	BaseType_t dequeue_success = pdTRUE;
 
 	dequeue_success = xQueuePeek(
 		setpoint_qh,
-		&setpoint,
+		&dequed_setpoint,
 		pdMS_TO_TICKS(50)
 	);
 	if (pdFALSE == dequeue_success) {
@@ -294,6 +297,24 @@ void control_loop() {
 			"error receiving setpoint, using prev (%.3e)",
 			setpoint
 		);
+	}
+	else {
+		const float setpoint_diff = setpoint - dequed_setpoint;
+		if ( std::abs(setpoint_diff) > SP_DELTA_THRESHOLD ) {
+			if (setpoint_diff < 0.0f) {
+				current_windup->set_st_setpoint(setpoint);
+				current_windup->set_en_setpoint(dequed_setpoint);
+				transition_handler->update_state(ControllerState_e::WINDUP);
+			}
+			else {
+				current_winddown->set_st_setpoint(setpoint);
+				current_winddown->set_en_setpoint(dequed_setpoint);
+				transition_handler->update_state(ControllerState_e::WINDOWN);
+			}
+		}
+		else {
+			setpoint = dequed_setpoint;
+		}
 	}
 	control_tick();
 }
@@ -317,7 +338,14 @@ void windown_loop() {
 	const float   elapsed_time = (curr_time - windx_start)*1e-6f;
 
 	if ( elapsed_time > current_winddown->period() ) {
-		transition_handler->update_state(ControllerState_e::IDLE);
+		switch ( current_task_state & STATE_MASK) {
+			case ControllerState_e::WINDOWN:
+				transition_handler->update_state(ControllerState_e::CONTROL);
+				break;
+			case ControllerState_e::STOPPING:
+				transition_handler->update_state(ControllerState_e::IDLE);
+				break;
+		}
 		setpoint = current_winddown->get_en_setpoint();
 	}
 	else {
@@ -339,16 +367,21 @@ bool handle_transition(ControllerState_e from, ControllerState_e to) {
 	);
 	switch (to) {
 	case IDLE:
-		if ( WINDUP == from ) {
+		if (    WINDUP  == from
+		     || WINDOWN == from
+		) {
 			return false;
 		}
 		break;
 	case WINDUP:
-		if ( WINDOWN == from ) {
+		if (    WINDOWN  == from
+		     || STOPPING == from
+		) {
 			return false;
 		}
 		break;
 	case WINDOWN:
+	case STOPPING:
 		if (IDLE == from) {
 			return false;
 		}
@@ -437,8 +470,12 @@ esp_err_t task::controller::ControllerTask::stop() {
 		ESP_LOGE(LOG_TAG, "On windown!");
 		return ESP_ERR_INVALID_STATE;
 	}
+	if (current_state & ControllerState_e::STOPPING) {
+		ESP_LOGE(LOG_TAG, "Already stopping!");
+		return ESP_ERR_INVALID_STATE;
+	}
 	if (transition_handler) {
-		transition_handler->update_state(ControllerState_e::WINDOWN);
+		transition_handler->update_state(ControllerState_e::STOPPING);
 	}
 	return ESP_OK;
 }
