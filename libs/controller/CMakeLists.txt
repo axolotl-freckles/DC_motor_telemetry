@@ -7,8 +7,10 @@ idf_component_register (
 		"controllers/open_loop_controller.cpp"
 		"windups/NoWindup.cpp"
 		"windups/LinearWindup.cpp"
+		"windups/BezierWindup.cpp"
 		"winddowns/NoWinddown.cpp"
 		"winddowns/LinearWinddown.cpp"
+		"winddowns/BezierWinddown.cpp"
 	INCLUDE_DIRS "."
 	REQUIRES
 		"esp_timer"

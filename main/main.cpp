@@ -49,7 +49,19 @@ extern "C" void app_main(void)
 	controller_task->start();
 	controller_task->wait_state(ControllerState_e::CONTROL, portMAX_DELAY);
 
-	vTaskDelay(pdMS_TO_TICKS(12000));
+	vTaskDelay(pdMS_TO_TICKS(100));
+	float setpoint = 50.0f;
+	xQueueOverwrite(setpoint_qh, &setpoint);
+	
+	vTaskDelay(pdMS_TO_TICKS(1100));
+	setpoint = 2.5f;
+	xQueueOverwrite(setpoint_qh, &setpoint);
+	
+	vTaskDelay(pdMS_TO_TICKS(1600));
+	setpoint = 3.75f;
+	xQueueOverwrite(setpoint_qh, &setpoint);
+
+	vTaskDelay(pdMS_TO_TICKS(1000));
 	controller_task->stop();
 
 	while (true) {

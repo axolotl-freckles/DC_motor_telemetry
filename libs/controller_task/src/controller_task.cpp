@@ -22,7 +22,9 @@
 #include "controllers/open_loop_controller.hpp"
 #include "controllers/fixed_sp_controller.hpp"
 #include "windups/LinearWindup.hpp"
+#include "windups/BezierWindup.hpp"
 #include "winddowns/LinearWinddown.hpp"
+#include "winddowns/BezierWinddown.hpp"
 #include "sampler_task.hpp"
 #include "apply_task.hpp"
 #include "telemetry_task.hpp"
@@ -39,13 +41,13 @@ using namespace task::controller;
 const char LOG_TAG[] = "controller";
 
 constexpr TickType_t TELEMETRY_TICK_TIME_ms = SAMPLE_TIME_ms;
-constexpr int64_t    WINDUP_PERIOD_us        = 1500000;
-constexpr int64_t    WINDOWN_PERIOD_us       = 1500000;
-constexpr float      WINDUP_PERIOD_s         = WINDUP_PERIOD_us *1e-6f;
-constexpr float      WINDOWN_PERIOD_s        = WINDOWN_PERIOD_us*1e-6f;
+// constexpr int64_t    WINDUP_PERIOD_us        = 1500000;
+// constexpr int64_t    WINDOWN_PERIOD_us       = 1500000;
+constexpr float      WINDUP_PERIOD_s         = 0.5f;//WINDUP_PERIOD_us *1e-6f;
+constexpr float      WINDOWN_PERIOD_s        = 0.5f;//WINDOWN_PERIOD_us*1e-6f;
 constexpr int64_t    WATCHDOG_THRESH_us      = 1000;
 constexpr int64_t    STOP_TIMEOUT_us         = TELEMETRY_TICK_TIME_ms*1000LL;
-constexpr float      DEFAULT_SETPOINT        = 30.0f;
+constexpr float      DEFAULT_SETPOINT        =  0.1f;//30.0f;
 constexpr float      SP_DELTA_THRESHOLD      =  0.1f;
 
 constexpr EventBits_t INIT_OK           = 0b1 << 11;
@@ -73,8 +75,10 @@ static int64_t          windx_start        = 0L;
 static Controller     * dc_controller      = nullptr;
 static Windup         * current_windup   = nullptr;
 static Winddown       * current_winddown = nullptr;
-static LinearWindup     default_windup  (WINDUP_PERIOD_s, 0.0f, DEFAULT_SETPOINT);
-static LinearWinddown   default_winddown(WINDOWN_PERIOD_s, DEFAULT_SETPOINT, 0.0f);
+// static LinearWindup     default_windup  (WINDUP_PERIOD_s, 0.0f, DEFAULT_SETPOINT);
+// static LinearWinddown   default_winddown(WINDOWN_PERIOD_s, DEFAULT_SETPOINT, 0.0f);
+static BezierWindup   default_windup  (WINDUP_PERIOD_s, 0.0f, DEFAULT_SETPOINT);
+static BezierWinddown default_winddown(WINDOWN_PERIOD_s, DEFAULT_SETPOINT, 0.0f);
 
 static void control_task_fn(void *args);
 
@@ -301,7 +305,7 @@ void control_loop() {
 	else {
 		const float setpoint_diff = setpoint - dequed_setpoint;
 		if ( std::abs(setpoint_diff) > SP_DELTA_THRESHOLD ) {
-			if (setpoint_diff < 0.0f) {
+			if ( setpoint < dequed_setpoint ) {
 				current_windup->set_st_setpoint(setpoint);
 				current_windup->set_en_setpoint(dequed_setpoint);
 				transition_handler->update_state(ControllerState_e::WINDUP);
