@@ -125,20 +125,29 @@ void apply_loop(StateStruct_t &state) {
 	EventBits_t curr_state = 0;
 	float       voltage    = 0.0f;
 	float       dutycycle  = 0.0f;
+	float       applied_voltage = 0.0f;
 	(void)xQueueReceive(voltage_qh, &voltage, portMAX_DELAY);
 	curr_state = xEventGroupGetBits(state_event_gh);
 	if (curr_state & ~ApplyState_e::APPLYING) {
 		return;
 	}
 
-	dutycycle = voltage / (voltage + voltageBattery);
-	dutycycle = std::max(dutycycle, DUTY_MIN);
-	dutycycle = std::min(dutycycle, DUTY_MAX);
+	if (voltage <= 0.0f) {
+		// Failsafe: never boost duty from negative/zero control effort.
+		dutycycle = 0.0f;
+		applied_voltage = 0.0f;
+	} else {
+		dutycycle = voltage / (voltage + voltageBattery);
+		dutycycle = std::max(dutycycle, DUTY_MIN);
+		dutycycle = std::min(dutycycle, DUTY_MAX);
+		applied_voltage = voltageBattery * dutycycle / (1.0f - dutycycle);
+	}
+
 	ledc_set_duty(LEDC_SPEED_MODE, BUCK_CHANNEL, dutycycle * PWM_MAX_VAL);
 	ledc_update_duty(LEDC_SPEED_MODE, BUCK_CHANNEL);
 	ledc_set_duty(LEDC_SPEED_MODE, BOOST_CHANNEL, dutycycle * PWM_MAX_VAL);
 	ledc_update_duty(LEDC_SPEED_MODE, BOOST_CHANNEL);
-	task::sampler::SamplerTask::get_instance().set_applied_voltage( voltageBattery*dutycycle/(1-dutycycle) );
+	task::sampler::SamplerTask::get_instance().set_applied_voltage(applied_voltage);
 }
 
 /* ###################################################### TRANSITION HANDLING */
