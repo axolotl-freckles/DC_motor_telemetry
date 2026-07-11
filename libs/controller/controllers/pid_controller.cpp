@@ -11,7 +11,7 @@
 
 #include "pid_controller.hpp"
 
-PID::PID (std::function<float ()> error_function, float Kp, float Ki, float Kd)
+PID::PID (PID::ErrorFunction_t error_function, float Kp, float Ki, float Kd)
 : Controller()
 	, _integrator(get_sample_time_s())
 	, _derivator(get_sample_time_s())
@@ -26,7 +26,7 @@ void PID::setup() {
 	set_voltage(1.0f);
 }
 Controller::ErrorType_t PID::loop(float setpoint) {
-	float error = _error_function();
+	float error = _error_function(setpoint);
 	float u = _kp*error + _kd*_derivator(error) + _ki*_integrator(error);
 	set_voltage(u);
 	return Controller::ErrorType_t::OK;

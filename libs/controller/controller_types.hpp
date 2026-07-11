@@ -15,7 +15,7 @@
 namespace control {
 
 struct ControlPoint {
-	float voltage;
+	float voltage = 0.0f;
 
 	inline bool operator < (const ControlPoint &_other) {
 		return voltage < _other.voltage;

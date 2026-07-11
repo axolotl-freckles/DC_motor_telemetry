@@ -66,14 +66,10 @@ static QueueHandle_t speed_qh    = nullptr;
 static QueueHandle_t csignal_qh  = nullptr;
 
 /* Runtime variables */
-static EventBits_t   current_task_state = 0;
-static float         setpoint           = 0.0f;
-static int64_t       windx_start        = 0L;
-static Controller  * dc_controller      = nullptr;
-#if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
-static QueueHandle_t                      open_loop_voltage_qh = nullptr;
-static DCPlant::EulerDCMotorModel const * motor_model          = nullptr;
-#endif
+static EventBits_t      current_task_state = 0;
+static float            setpoint           = 0.0f;
+static int64_t          windx_start        = 0L;
+static Controller     * dc_controller      = nullptr;
 static Windup         * current_windup   = nullptr;
 static Winddown       * current_winddown = nullptr;
 static LinearWindup     default_windup  (WINDUP_PERIOD_s, 0.0f, DEFAULT_SETPOINT);
@@ -141,18 +137,15 @@ static void control_task_fn(void *args) {
 	transition_handler->update_state(ControllerState_e::IDLE);
 
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_PID
-	std::function<float ()> error_func = [&setpoint] () -> float {
-		return 0.0f - setpoint;
+	std::function<float ()> error_func = (float _setpoint) -> float {
+		return Controller::read_speed_rad_s() - _setpoint;
 	};
 
 	controller = new (controller_mem_space) PID(error_func, 3.0f, 2.0f, 1.0f);
 	((PID*)controller)->set_integrator_saturators(10.0f);
 #endif
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
-	const float voltage_setpoint = 30.0f;
-	QueueHandle_t voltage_queue = xQueueCreate(1, sizeof(float));
-	xQueueOverwrite(voltage_queue, &voltage_setpoint);
-	dc_controller = new (controller_mem_space) OpenLoop(voltage_queue);
+	dc_controller = new (controller_mem_space) OpenLoop();
 #endif
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_FIXD
 	BzSetpoint_t setpoints[N_SETPOINTS] = {
@@ -171,11 +164,6 @@ static void control_task_fn(void *args) {
 #endif
 
 	transition_handler->set_trans_callback(handle_transition);
-
-#if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
-	open_loop_voltage_qh = voltage_queue;
-	motor_model          = &((OpenLoop*)dc_controller)->model();
-#endif
 
 	xEventGroupSetBits(task_state_event_group_h, INIT_OK);
 
@@ -249,9 +237,7 @@ inline void control_tick() {
 			speed
 		);
 	}
-#if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
-	xQueueOverwrite(open_loop_voltage_qh, &setpoint);
-#endif
+
 	(void)dc_controller->loop(setpoint);
 	control_signal = dc_controller->get_control_point().voltage;
 	ESP_LOGI(LOG_TAG, "Control point is: %.3e", control_signal);

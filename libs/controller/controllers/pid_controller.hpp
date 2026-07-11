@@ -18,7 +18,8 @@
 
 class PID : public Controller {
 public:
-	PID (std::function<float ()> error_function, float Kp, float Ki, float Kd);
+	using ErrorFunction_t = std::function<float (float setpoint)>;
+	PID (ErrorFunction_t error_function, float Kp, float Ki, float Kd);
 
 	void                    setup()                override;
 	Controller::ErrorType_t loop (float setpoint)  override;
@@ -31,7 +32,7 @@ public:
 private:
 	Integrator _integrator;
 	Derivator  _derivator;
-	std::function<float ()> _error_function;
+	ErrorFunction_t _error_function;
 
 	float _kp;
 	float _ki;
