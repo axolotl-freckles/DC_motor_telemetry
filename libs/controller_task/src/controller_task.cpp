@@ -41,10 +41,8 @@ using namespace task::controller;
 const char LOG_TAG[] = "controller";
 
 constexpr TickType_t TELEMETRY_TICK_TIME_ms = SAMPLE_TIME_ms;
-// constexpr int64_t    WINDUP_PERIOD_us        = 1500000;
-// constexpr int64_t    WINDOWN_PERIOD_us       = 1500000;
-constexpr float      WINDUP_PERIOD_s         = 0.5f;//WINDUP_PERIOD_us *1e-6f;
-constexpr float      WINDOWN_PERIOD_s        = 0.5f;//WINDOWN_PERIOD_us*1e-6f;
+constexpr float      WINDUP_PERIOD_s         = 2.0f;//WINDUP_PERIOD_us *1e-6f;
+constexpr float      WINDOWN_PERIOD_s        = 2.0f;//WINDOWN_PERIOD_us*1e-6f;
 constexpr int64_t    WATCHDOG_THRESH_us      = 1000;
 constexpr int64_t    STOP_TIMEOUT_us         = TELEMETRY_TICK_TIME_ms*1000LL;
 constexpr float      DEFAULT_SETPOINT        =  0.1f;//30.0f;
@@ -182,8 +180,20 @@ static void control_task_fn(void *args) {
 			handle_error();
 		}
 		else {
-			if (state_delta & current_task_state & ControllerState_e::WINDOWN) {
+			constexpr EventBits_t WINDX = ControllerState_e::WINDUP
+			                            | ControllerState_e::WINDOWN
+			                            | ControllerState_e::STOPPING;
+			if (state_delta & current_task_state & WINDX ) {
+				windx_start = esp_timer_get_time();
+			}
+			if (  state_delta
+			    & current_task_state
+			    & (ControllerState_e::WINDOWN | ControllerState_e::STOPPING)
+			) {
 				current_winddown->set_st_setpoint(setpoint);
+				if (current_task_state & ControllerState_e::STOPPING) {
+					current_winddown->set_en_setpoint(0.0f);
+				}
 			}
 			handle_state();
 		}
@@ -197,7 +207,7 @@ static void control_task_fn(void *args) {
 }
 
 void handle_state() {
-	ESP_LOGI(LOG_TAG, "state: %s", state_to_str(current_task_state & STATE_MASK));
+	ESP_LOGD(LOG_TAG, "state: %s", state_to_str(current_task_state & STATE_MASK));
 	switch (current_task_state & STATE_MASK) {
 		case ControllerState_e::IDLE:
 			idle_loop   ();
@@ -226,28 +236,11 @@ void handle_error() {
 
 inline void control_tick() {
 	float control_signal       = 0.0f;
-	float speed                = 0.0f;
-	BaseType_t dequeue_success = pdTRUE;
-
-	dequeue_success = xQueuePeek(
-		speed_qh,
-		&speed,
-		pdMS_TO_TICKS(50)
-	);
-
-	if (pdFALSE == dequeue_success) {
-		// TODO: Transition to error state
-		ESP_LOGE(
-			LOG_TAG,
-			"error receiving speed, using prev (%.3e)",
-			speed
-		);
-	}
 
 	(void)dc_controller->loop(setpoint);
 	control_signal = dc_controller->get_control_point().voltage;
-	ESP_LOGI(LOG_TAG, "Control point is: %.3e", control_signal);
-	ESP_LOGI(LOG_TAG, "Setpoint is     : %.3e", setpoint);
+	ESP_LOGV(LOG_TAG, "Control point is: %.3e", control_signal);
+	ESP_LOGV(LOG_TAG, "Setpoint is     : %.3e", setpoint);
 	xQueueOverwrite(csignal_qh, &control_signal);
 }
 
@@ -282,21 +275,21 @@ void idle_loop   () {
 	Winddown *controller_winddown = dc_controller->get_winddown();
 	current_windup   = controller_windup?   controller_windup   : &default_windup;
 	current_winddown = controller_winddown? controller_winddown : &default_winddown;
+	current_windup->set_st_setpoint(0.0f);
 	dc_controller->setup();
-	windx_start = esp_timer_get_time();
 }
 void control_loop() {
 	int64_t    curr_time       = esp_timer_get_time();
 	float      dequed_setpoint = 0.0f;
 	BaseType_t dequeue_success = pdTRUE;
 
-	dequeue_success = xQueuePeek(
+	dequeue_success = xQueueReceive(
 		setpoint_qh,
 		&dequed_setpoint,
-		pdMS_TO_TICKS(50)
+		0
 	);
 	if (pdFALSE == dequeue_success) {
-		ESP_LOGW(
+		ESP_LOGV(
 			LOG_TAG,
 			"error receiving setpoint, using prev (%.3e)",
 			setpoint
@@ -305,6 +298,7 @@ void control_loop() {
 	else {
 		const float setpoint_diff = setpoint - dequed_setpoint;
 		if ( std::abs(setpoint_diff) > SP_DELTA_THRESHOLD ) {
+			ESP_LOGI(LOG_TAG, "Big setpoint dif %e -> %e", setpoint, dequed_setpoint);
 			if ( setpoint < dequed_setpoint ) {
 				current_windup->set_st_setpoint(setpoint);
 				current_windup->set_en_setpoint(dequed_setpoint);
@@ -334,7 +328,7 @@ void windup_loop () {
 		setpoint = current_windup->step(elapsed_time);
 	}
 
-	ESP_LOGI(LOG_TAG, "Windup setpoint: %.3e", setpoint);
+	ESP_LOGD(LOG_TAG, "Windup setpoint: %.3e", setpoint);
 	control_tick();
 }
 void windown_loop() {
@@ -356,7 +350,7 @@ void windown_loop() {
 		setpoint = current_winddown->step(elapsed_time);
 	}
 
-	ESP_LOGI(LOG_TAG, "Windown setpoint: %.3e", setpoint);
+	ESP_LOGD(LOG_TAG, "Windown setpoint: %.3e", setpoint);
 	control_tick();
 }
 
@@ -389,7 +383,6 @@ bool handle_transition(ControllerState_e from, ControllerState_e to) {
 		if (IDLE == from) {
 			return false;
 		}
-		windx_start = esp_timer_get_time();
 		break;
 	default:
 		break;

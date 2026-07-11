@@ -22,6 +22,8 @@ const char LOG_TAG[] = "apply";
 
 #define LEDC_SPEED_MODE LEDC_LOW_SPEED_MODE
 
+static constexpr float POWER_VOLTAGE = 25.0f;
+
 static constexpr ledc_timer_t   PWM_TIMER        = LEDC_TIMER_0;
 static constexpr int            PWM_RESOLUTION   = 9;
 static constexpr uint32_t       PWM_MAX_VAL      = (1<<PWM_RESOLUTION) - 1;
@@ -128,12 +130,12 @@ void apply_loop(StateStruct_t &state) {
 		return;
 	}
 
-	dutycycle = voltage / (voltage + 24.0f);
+	dutycycle = voltage / (voltage + POWER_VOLTAGE);
 	dutycycle = std::max(dutycycle, 0.1f);
 	dutycycle = std::min(dutycycle, 0.9f);
-	ledc_set_duty_and_update(LEDC_SPEED_MODE, BUCK_CHANNEL, dutycycle*PWM_MAX_VAL , 0);
-	ledc_set_duty_and_update(LEDC_SPEED_MODE, BUCK_CHANNEL, (1-dutycycle)*PWM_MAX_VAL , 0);
-	task::sampler::SamplerTask::get_instance().set_applied_voltage( 24.0f*dutycycle/(1-dutycycle) );
+	ledc_set_duty_and_update(LEDC_SPEED_MODE,  BUCK_CHANNEL, dutycycle*PWM_MAX_VAL , 0);
+	ledc_set_duty_and_update(LEDC_SPEED_MODE, BOOST_CHANNEL, dutycycle*PWM_MAX_VAL , 0);
+	task::sampler::SamplerTask::get_instance().set_applied_voltage( POWER_VOLTAGE*dutycycle/(1-dutycycle) );
 }
 
 /* ###################################################### TRANSITION HANDLING */
@@ -260,7 +262,7 @@ task::apply::ApplyTask::ApplyTask () : task::StateTask() {
 	xTaskCreate (
 		apply_task_fn,
 		"apply_task",
-		2048,
+		2048 + 1024,
 		nullptr,
 		3,
 		&_frtos_task_h
