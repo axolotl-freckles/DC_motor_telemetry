@@ -79,5 +79,4 @@ Desktop.ini
 *.sln.docstates # Visual Studio
 
 # Test outputs
-*.txt
 *.csv
