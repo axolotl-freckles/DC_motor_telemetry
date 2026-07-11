@@ -22,8 +22,8 @@ class OpenLoop : public Controller {
 public:
 	OpenLoop (QueueHandle_t voltage_q);
 
-	void setup() override;
-	void loop()  override;
+	void                    setup()                override;
+	Controller::ErrorType_t loop (float setpoint)  override;
 
 	DCPlant::EulerDCMotorModel       &model   ()       { return _estimator; }
 	DCPlant::DCMotorObserver         &observer()       { return _observer;  }

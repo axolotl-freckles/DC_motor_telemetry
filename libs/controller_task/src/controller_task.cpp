@@ -252,7 +252,7 @@ inline void control_tick() {
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
 	xQueueOverwrite(open_loop_voltage_qh, &setpoint);
 #endif
-	dc_controller->loop();
+	(void)dc_controller->loop(setpoint);
 	control_signal = dc_controller->get_control_point().voltage;
 	ESP_LOGI(LOG_TAG, "Control point is: %.3e", control_signal);
 	ESP_LOGI(LOG_TAG, "Setpoint is     : %.3e", setpoint);

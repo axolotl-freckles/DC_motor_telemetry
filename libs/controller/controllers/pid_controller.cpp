@@ -25,9 +25,10 @@ void PID::setup() {
 	_integrator.setIntegralAcumulator(0.0f);
 	set_voltage(1.0f);
 }
-void PID::loop() {
+Controller::ErrorType_t PID::loop(float setpoint) {
 	float error = _error_function();
 	float u = _kp*error + _kd*_derivator(error) + _ki*_integrator(error);
 	set_voltage(u);
+	return Controller::ErrorType_t::OK;
 }
 

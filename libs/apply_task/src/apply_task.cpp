@@ -29,7 +29,7 @@ static constexpr uint32_t       PWM_FREQUENCY_Hz = 100000;
 static constexpr int            HIGH_GPIO        = 18;
 static constexpr int            LOW_GPIO         = 21;
 static constexpr ledc_channel_t BUCK_CHANNEL     = (ledc_channel_t)1;
-static constexpr ledc_channel_t BOOST_CHANNEL      = (ledc_channel_t)2;
+static constexpr ledc_channel_t BOOST_CHANNEL    = (ledc_channel_t)2;
 
 static constexpr gpio_num_t BOOST_PIN = (gpio_num_t)LOW_GPIO;
 static constexpr gpio_num_t BUCK_PIN  = (gpio_num_t)HIGH_GPIO;

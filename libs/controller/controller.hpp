@@ -16,6 +16,11 @@
 
 class Controller {
 public:
+	enum ErrorType_t {
+		OK            = 0,
+		GENERIC_ERROR,
+		NAN_RESULT,
+	};
 	Controller();
 	virtual ~Controller() { }
 
@@ -25,8 +30,8 @@ public:
  *          controller
  * loop()  -> runs every kernel tick. put your controller logic here
  */
-	virtual void setup() = 0;
-	virtual void loop()  = 0;
+	virtual void        setup()                = 0;
+	virtual ErrorType_t loop (float setpoint)  = 0;
 
 	void set_voltage (const float voltage);
 	void set_windup  (Windup     *windup);

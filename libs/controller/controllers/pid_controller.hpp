@@ -20,8 +20,8 @@ class PID : public Controller {
 public:
 	PID (std::function<float ()> error_function, float Kp, float Ki, float Kd);
 
-	void setup() override;
-	void loop()  override;
+	void                    setup()                override;
+	Controller::ErrorType_t loop (float setpoint)  override;
 
 	inline void set_integrator_saturators(float limit) {
 		_integrator.saturatorMax() =  std::abs(limit);

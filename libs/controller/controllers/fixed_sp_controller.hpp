@@ -37,8 +37,8 @@ public:
 		float K1, float K2, float Ki, float Nu
 	);
 
-	void setup() override;
-	void loop()  override;
+	void                    setup()                override;
+	Controller::ErrorType_t loop (float setpoint)  override;
 
 	DCPlant::EulerDCMotorModel       &model   ()       { return _estimator; }
 	DCPlant::DCMotorObserver         &observer()       { return _observer;  }
@@ -130,7 +130,7 @@ void FixedSPController<n_setpoints>::setup() {
 	_current_setpoint = 0;
 }
 template <int n_setpoints>
-void FixedSPController<n_setpoints>::loop() {
+Controller::ErrorType_t FixedSPController<n_setpoints>::loop(float setpoint) {
 	static uint8_t n_ticks = 1;
 	constexpr float    SIMULATED_LOAD   = 1.0f;
 	float voltage_setpoint  = get_control_point().voltage;
@@ -183,27 +183,12 @@ void FixedSPController<n_setpoints>::loop() {
 			&package,
 			0
 		);
-		//(void)printf( "%10.3e"
-		//             ",%10.3e"
-		//             ",%10.3e"
-		//             ",%10.3e"
-		//             ",%10.3e"
-		//             ",%10.3e"
-		//             ",%10.3e\n",
-		//	//_start_time_s,
-		//	start_delta,
-		//	reference_w,
-		//	_estimator.state().w_rad_s,
-		//	_estimator.state().I_amp,
-		//	_observer .state().w_rad_s,
-		//	_observer .state().I_amp,
-		//	_observer .estimated_load()
-		//);
 		n_ticks = 0;
 	}
 	n_ticks++;
 
 	set_voltage(voltage_setpoint);
+	return Controller::ErrorType_t::OK;
 }
 
 template <int n_setpoints>

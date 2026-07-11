@@ -56,7 +56,7 @@ void OpenLoop::setup () {
 	_start_time_us = esp_timer_get_time();
 }
 
-void OpenLoop::loop () {
+Controller::ErrorType_t OpenLoop::loop (float setpoint) {
 	static    uint8_t  n_ticks        = 1;
 	constexpr float    SIMULATED_LOAD = 1.0f;
 	const     uint64_t now            = esp_timer_get_time();
@@ -93,4 +93,5 @@ void OpenLoop::loop () {
 
 	(void)xQueuePeek(_voltage_q, &_voltage_setpoint, portMAX_DELAY);
 	set_voltage(_voltage_setpoint);
+	return Controller::ErrorType_t::OK;
 }
