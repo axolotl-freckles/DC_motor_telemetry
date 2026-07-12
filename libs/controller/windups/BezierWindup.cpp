@@ -1,4 +1,4 @@
-#include "bezierWindup.hpp"
+#include "BezierWindup.hpp"
 
 BezierWindup::BezierWindup(float period_s, float start_setpoint, float end_setpoint)
     : Windup(period_s)

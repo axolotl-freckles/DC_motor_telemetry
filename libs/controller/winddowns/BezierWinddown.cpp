@@ -1,6 +1,6 @@
 
 
-#include "bezierWinddown.hpp"
+#include "BezierWinddown.hpp"
 
 BezierWinddown::BezierWinddown(float period_s, float start_setpoint, float end_setpoint)
     : Winddown(period_s)
