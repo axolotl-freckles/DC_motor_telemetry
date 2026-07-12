@@ -41,8 +41,8 @@ using namespace task::controller;
 const char LOG_TAG[] = "controller";
 
 constexpr TickType_t TELEMETRY_TICK_TIME_ms = SAMPLE_TIME_ms;
-constexpr float      WINDUP_PERIOD_s         = 2.0f;//WINDUP_PERIOD_us *1e-6f;
-constexpr float      WINDOWN_PERIOD_s        = 2.0f;//WINDOWN_PERIOD_us*1e-6f;
+constexpr float      WINDUP_PERIOD_s         = 0.5f;
+constexpr float      WINDOWN_PERIOD_s        = 0.5f;
 constexpr int64_t    WATCHDOG_THRESH_us      = 1000;
 constexpr int64_t    STOP_TIMEOUT_us         = TELEMETRY_TICK_TIME_ms*1000LL;
 constexpr float      DEFAULT_SETPOINT        =  0.1f;//30.0f;
