@@ -105,6 +105,8 @@ static inline const char * state_to_str(EventBits_t state_bits) {
 		return "WINDOWN";
 	case ControllerState_e::CONTROL:
 		return "CONTROL";
+	case ControllerState_e::STOPPING:
+		return "STOPPING";
 	default:
 		return "UNKNOWN";
 	}
