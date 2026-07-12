@@ -28,16 +28,12 @@ extern "C" void app_main(void)
 	ledc_fade_func_install(0);
 
 	QueueHandle_t setpoint_qh = xQueueCreate(1, sizeof(float));
-	QueueHandle_t speed_qh    = xQueueCreate(1, sizeof(float));
 	QueueHandle_t cpoint_qh   = xQueueCreate(1, sizeof(float));
 	ControllerTask::config_params controller_config = {
 		.setpoint_qh       = setpoint_qh,
-		.speed_qh          = speed_qh,
 		.control_signal_qh = cpoint_qh
 	};
-	SamplerTask::config_params sampler_config = {
-		.speed_qh = speed_qh
-	};
+	SamplerTask::config_params sampler_config = { };
 	ApplyTask::config_params apply_config = {
 		.voltage_queue_h = cpoint_qh
 	};
@@ -54,13 +50,13 @@ extern "C" void app_main(void)
 	xQueueOverwrite(setpoint_qh, &setpoint);
 	controller_task->wait_state(ControllerState_e::WINDUP | ControllerState_e::WINDOWN, portMAX_DELAY);
 	controller_task->wait_state(ControllerState_e::CONTROL, portMAX_DELAY);
-	
+
 	vTaskDelay(pdMS_TO_TICKS(10000));
 	setpoint = 10.0f;
 	xQueueOverwrite(setpoint_qh, &setpoint);
 	controller_task->wait_state(ControllerState_e::WINDUP | ControllerState_e::WINDOWN, portMAX_DELAY);
 	controller_task->wait_state(ControllerState_e::CONTROL, portMAX_DELAY);
-	
+
 	vTaskDelay(pdMS_TO_TICKS(10000));
 	controller_task->stop();
 

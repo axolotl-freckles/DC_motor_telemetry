@@ -24,9 +24,7 @@ namespace sampler {
 
 class SamplerTask : public StateTask {
 public:
-	struct config_params {
-		QueueHandle_t speed_qh;
-	};
+	struct config_params { };
 
 	static SamplerTask& get_instance();
 

@@ -5,6 +5,7 @@ idf_component_register (
 		"windup.cpp"
 		"controllers/pid_controller.cpp"
 		"controllers/open_loop_controller.cpp"
+		"controllers/ideal_control_law.cpp"
 		"windups/NoWindup.cpp"
 		"windups/LinearWindup.cpp"
 		"windups/BezierWindup.cpp"
