@@ -141,7 +141,7 @@ static void control_task_fn(void *args) {
 
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_PID
 	std::function<float ()> error_func = (float _setpoint) -> float {
-		return Controller::read_speed_rad_s() - _setpoint;
+		return _setpoint - Controller::read_speed_rad_s();
 	};
 
 	controller = new (controller_mem_space) PID(error_func, 3.0f, 2.0f, 1.0f);

@@ -90,7 +90,7 @@ void apply_task_fn (void* raw_args) {
 			handle_state(state);
 		}
 
-		vTaskDelay(1);
+		//vTaskDelay(1);
 	}
 
 }
