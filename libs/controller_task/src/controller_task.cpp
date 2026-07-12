@@ -143,12 +143,12 @@ static void control_task_fn(void *args) {
 	transition_handler->update_state(ControllerState_e::IDLE);
 
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_PID
-	std::function<float ()> error_func = (float _setpoint) -> float {
+	PID::ErrorFunction_t error_func = [] (float _setpoint) -> float {
 		return _setpoint - Controller::read_speed_rad_s();
 	};
 
 	dc_controller = new (controller_mem_space) PID(error_func, 0.8f, 0.2f, 0.0f);
-	((PID*)controller)->set_integrator_saturators(2.5f);
+	((PID*)dc_controller)->set_integrator_saturators(2.5f);
 #endif
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
 	dc_controller = new (controller_mem_space) OpenLoop();

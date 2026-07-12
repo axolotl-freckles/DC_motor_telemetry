@@ -15,6 +15,11 @@
 #include "apply_task.hpp"
 #include "sampler_task.hpp"
 
+using task::controller::ControllerTask;
+using task::controller::ControllerState_e;
+using task::sampler::SamplerTask;
+using task::apply::ApplyTask;
+
 static const char *TAG = "main";
 static constexpr float TWO_PI = 6.2831853071795864769f;
 static constexpr float VOLTAGE_BATTERY = 25.0f;
