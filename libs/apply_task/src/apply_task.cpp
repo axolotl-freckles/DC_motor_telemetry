@@ -22,6 +22,8 @@ const char LOG_TAG[] = "apply";
 
 #define LEDC_SPEED_MODE LEDC_LOW_SPEED_MODE
 
+static constexpr float POWER_VOLTAGE = 25.0f;
+
 static constexpr ledc_timer_t   PWM_TIMER        = LEDC_TIMER_0;
 static constexpr int            PWM_RESOLUTION   = 9;
 static constexpr uint32_t       PWM_MAX_VAL      = (1<<PWM_RESOLUTION) - 1;
@@ -32,7 +34,7 @@ static constexpr float          DUTY_MAX          = 0.90f;
 static constexpr int            HIGH_GPIO        = 18;
 static constexpr int            LOW_GPIO         = 21;
 static constexpr ledc_channel_t BUCK_CHANNEL     = (ledc_channel_t)1;
-static constexpr ledc_channel_t BOOST_CHANNEL      = (ledc_channel_t)2;
+static constexpr ledc_channel_t BOOST_CHANNEL    = (ledc_channel_t)2;
 
 static constexpr gpio_num_t BOOST_PIN = (gpio_num_t)LOW_GPIO;
 static constexpr gpio_num_t BUCK_PIN  = (gpio_num_t)HIGH_GPIO;
@@ -91,7 +93,7 @@ void apply_task_fn (void* raw_args) {
 			handle_state(state);
 		}
 
-		vTaskDelay(SAMPLE_TIME_ms);
+		//vTaskDelay(1);
 	}
 
 }
@@ -132,22 +134,12 @@ void apply_loop(StateStruct_t &state) {
 		return;
 	}
 
-	if (voltage <= 0.0f) {
-		// Failsafe: never boost duty from negative/zero control effort.
-		dutycycle = 0.0f;
-		applied_voltage = 0.0f;
-	} else {
-		dutycycle = voltage / (voltage + voltageBattery);
-		dutycycle = std::max(dutycycle, DUTY_MIN);
-		dutycycle = std::min(dutycycle, DUTY_MAX);
-		applied_voltage = voltageBattery * dutycycle / (1.0f - dutycycle);
-	}
-
-	ledc_set_duty(LEDC_SPEED_MODE, BUCK_CHANNEL, dutycycle * PWM_MAX_VAL);
-	ledc_update_duty(LEDC_SPEED_MODE, BUCK_CHANNEL);
-	ledc_set_duty(LEDC_SPEED_MODE, BOOST_CHANNEL, dutycycle * PWM_MAX_VAL);
-	ledc_update_duty(LEDC_SPEED_MODE, BOOST_CHANNEL);
-	task::sampler::SamplerTask::get_instance().set_applied_voltage(applied_voltage);
+	dutycycle = voltage / (voltage + POWER_VOLTAGE);
+	dutycycle = std::max(dutycycle, 0.1f);
+	dutycycle = std::min(dutycycle, 0.9f);
+	ledc_set_duty_and_update(LEDC_SPEED_MODE,  BUCK_CHANNEL, dutycycle*PWM_MAX_VAL , 0);
+	ledc_set_duty_and_update(LEDC_SPEED_MODE, BOOST_CHANNEL, dutycycle*PWM_MAX_VAL , 0);
+	task::sampler::SamplerTask::get_instance().set_applied_voltage( POWER_VOLTAGE*dutycycle/(1-dutycycle) );
 }
 
 /* ###################################################### TRANSITION HANDLING */
@@ -273,7 +265,7 @@ task::apply::ApplyTask::ApplyTask () : task::StateTask() {
 	xTaskCreate (
 		apply_task_fn,
 		"apply_task",
-		4096,
+		2048 + 1024,
 		nullptr,
 		3,
 		&_frtos_task_h

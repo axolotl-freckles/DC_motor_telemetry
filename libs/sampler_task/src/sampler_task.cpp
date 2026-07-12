@@ -43,7 +43,6 @@ static EventGroupHandle_t             sampler_state_event_group_h = nullptr;
 static StateSwitcher<SamplerState_e> *transition_handler = nullptr;
 
 /* Message interface variables */
-static QueueHandle_t                  speed_qh           = nullptr;
 
 static Encoder encoder((gpio_num_t)4, (gpio_num_t)5, 1600);
 static EulerDCMotorModel mock_dc_motor(SAMPLE_PARAMS, MODEL_SIM_TIME_s);
@@ -148,7 +147,7 @@ void idle_loop  (const StateStruct_t &state) {
 }
 void sample_loop(const StateStruct_t &state) {
 	const float speed_sample = encoder.getRpm() * 2.0f * M_PI / 60.0f;
-	xQueueOverwrite(speed_qh, &speed_sample);
+	ESP_LOGI(LOG_TAG, "speed: %.3e", speed_sample);
 }
 
 static void interpolate_simulation() {
@@ -186,10 +185,6 @@ bool handle_transition(SamplerState_e from, SamplerState_e to) {
 esp_err_t task::sampler::SamplerTask::start() {
 	esp_err_t can_start     = ESP_OK;
 	bool      transition_ok = false;
-	if (!speed_qh) {
-		ESP_LOGE(LOG_TAG, "No speed out queue!");
-		can_start = ESP_ERR_INVALID_STATE;
-	}
 	if (!transition_handler) {
 		can_start = ESP_ERR_INVALID_STATE;
 	}
@@ -239,9 +234,7 @@ SamplerTask& task::sampler::SamplerTask::get_instance() {
 	return singleton_sampler_task;
 }
 
-void task::sampler::SamplerTask::set_params(const config_params& params) {
-	speed_qh = params.speed_qh;
-}
+void task::sampler::SamplerTask::set_params(const config_params& params) { }
 
 EventBits_t task::sampler::SamplerTask::get_state() {
 	return xEventGroupGetBits(_task_state_event_group_h) & PUBLIC_STATE_MASK;

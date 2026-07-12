@@ -20,20 +20,9 @@
 
 class OpenLoop : public Controller {
 public:
-	OpenLoop (QueueHandle_t voltage_q);
+	OpenLoop ();
 
-	void setup() override;
-	void loop()  override;
-
-	DCPlant::EulerDCMotorModel       &model   ()       { return _estimator; }
-	DCPlant::DCMotorObserver         &observer()       { return _observer;  }
-	const DCPlant::EulerDCMotorModel &model   () const { return _estimator; }
-	const DCPlant::DCMotorObserver   &observer() const { return _observer;  }
+	void                    setup()                override;
+	Controller::ErrorType_t loop (float setpoint)  override;
 private:
-	QueueHandle_t              _voltage_q;
-
-	DCPlant::EulerDCMotorModel _estimator;
-	DCPlant::DCMotorObserver   _observer;
-	uint64_t                   _start_time_us    = 0L;
-	float                      _voltage_setpoint = 0.0f;
 };

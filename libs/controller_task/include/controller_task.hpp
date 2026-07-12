@@ -17,18 +17,18 @@ namespace task {
 
 namespace controller {
 	enum ControllerState_e : EventBits_t {
-		IDLE    = 0b1 <<  0,
-		WINDUP  = 0b1 <<  1,
-		WINDOWN = 0b1 <<  2,
-		CONTROL = 0b1 <<  3,
-		ERROR   = 0b1 << 12
+		IDLE     = 0b1 <<  0,
+		WINDUP   = 0b1 <<  1,
+		WINDOWN  = 0b1 <<  2,
+		CONTROL  = 0b1 <<  3,
+		STOPPING = 0b1 <<  4,
+		ERROR    = 0b1 << 12
 	};
 
 class ControllerTask : public StateTask {
 public:
 	struct config_params {
 		QueueHandle_t setpoint_qh;
-		QueueHandle_t speed_qh;
 		QueueHandle_t control_signal_qh;
 	};
 

@@ -123,18 +123,14 @@ extern "C" void app_main(void)
 		task::apply::ApplyTask::get_instance();
 
 	QueueHandle_t setpoint_qh = xQueueCreate(1, sizeof(float));
-	QueueHandle_t speed_qh    = xQueueCreate(1, sizeof(float));
 	QueueHandle_t cpoint_qh   = xQueueCreate(1, sizeof(float));
 
 	task::controller::ControllerTask::config_params controller_config = {
 		.setpoint_qh       = setpoint_qh,
-		.speed_qh          = speed_qh,
 		.control_signal_qh = cpoint_qh
 	};
-	task::sampler::SamplerTask::config_params sampler_config = {
-		.speed_qh = speed_qh
-	};
-	task::apply::ApplyTask::config_params apply_config = {
+	SamplerTask::config_params sampler_config = { };
+	ApplyTask::config_params apply_config = {
 		.voltage_queue_h = cpoint_qh
 	};
 
