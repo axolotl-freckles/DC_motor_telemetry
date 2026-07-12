@@ -147,7 +147,6 @@ QueueHandle_t task::apply::ApplyTask::createQueue(UBaseType_t len) {
 }
 
 esp_err_t task::apply::ApplyTask::start() {
-	//return ESP_OK;
 	esp_err_t   can_start     = ESP_OK;
 	EventBits_t curr_state    = xEventGroupGetBits(_task_state_event_group_h);
 	bool        transition_ok = false;
@@ -166,7 +165,6 @@ esp_err_t task::apply::ApplyTask::start() {
 	return can_start;
 }
 esp_err_t task::apply::ApplyTask::stop() {
-	//return ESP_OK;
 	EventBits_t curr_state    = xEventGroupGetBits(_task_state_event_group_h);
 	if (curr_state & ApplyState_e::ERROR) {
 		ESP_LOGE(LOG_TAG, "Apply in error state!");

@@ -18,6 +18,7 @@
 
 #include "globals.hpp"
 #include "dc_plant.hpp"
+#include <cmath>
 
 using namespace task;
 using namespace task::sampler;
@@ -25,7 +26,7 @@ using namespace DCPlant;
 
 const char LOG_TAG[] = "sampler";
 
-constexpr TickType_t ENCODER_TICK_TIME_ms = 2000;
+constexpr TickType_t ENCODER_TICK_TIME_ms = SAMPLE_TIME_ms;
 
 constexpr EventBits_t INIT_OK           = 0b1 << 11;
 constexpr EventBits_t STATE_MASK        = ~(INIT_OK | SamplerState_e::ERROR);
@@ -43,6 +44,7 @@ static StateSwitcher<SamplerState_e> *transition_handler = nullptr;
 
 /* Message interface variables */
 
+static Encoder encoder((gpio_num_t)4, (gpio_num_t)5, 1600);
 static EulerDCMotorModel mock_dc_motor(SAMPLE_PARAMS, MODEL_SIM_TIME_s);
 static DCMotorObserver   observer(SAMPLE_PARAMS, SAMPLE_OBS_PRMS, MODEL_SIM_TIME_s);
 static uint64_t          last_interpolation_us = 0L;
@@ -96,6 +98,8 @@ void sampler_task_fn(void *args) {
 
 	xEventGroupSetBits(sampler_state_event_group_h, INIT_OK);
 
+	encoder.init();
+
 	while (true) {
 		current_state = xEventGroupGetBits(sampler_state_event_group_h);
 
@@ -142,9 +146,8 @@ void idle_loop  (const StateStruct_t &state) {
 	return;
 }
 void sample_loop(const StateStruct_t &state) {
-	float speed_sample = task::sampler::SamplerTask::get_instance().current_w();
-
-	ESP_LOGI(LOG_TAG, "speed: %.3e", speed_sample);
+	const float speed_sample = encoder.getRpm() * 2.0f * M_PI / 60.0f;
+	ESP_LOGV(LOG_TAG, "speed: %.3e", speed_sample);
 }
 
 static void interpolate_simulation() {
@@ -239,7 +242,9 @@ EventBits_t task::sampler::SamplerTask::get_state() {
 
 float task::sampler::SamplerTask::current_w()  {
 	interpolate_simulation();
-	return mock_dc_motor.state().w_rad_s;
+	//return mock_dc_motor.state().w_rad_s;
+
+	return encoder.getRpm() * 2.0f * M_PI / 60.0f;
 }
 float task::sampler::SamplerTask::current_TL() {
 	interpolate_simulation();
@@ -254,7 +259,10 @@ float task::sampler::SamplerTask::current_Volt() {
 float task::sampler::SamplerTask::estimated_load() {
 	return observer.estimated_load();
 }
-// const task::sampler::SamplerTask::Encoder &get_encoder() const;
+
+const Encoder &task::sampler::SamplerTask::get_encoder() const {
+	return encoder;
+}
 
 void task::sampler::SamplerTask::set_applied_voltage(float applied_voltage) {
 	interpolate_simulation();
