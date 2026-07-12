@@ -147,7 +147,7 @@ void idle_loop  (const StateStruct_t &state) {
 }
 void sample_loop(const StateStruct_t &state) {
 	const float speed_sample = encoder.getRpm() * 2.0f * M_PI / 60.0f;
-	ESP_LOGI(LOG_TAG, "speed: %.3e", speed_sample);
+	ESP_LOGV(LOG_TAG, "speed: %.3e", speed_sample);
 }
 
 static void interpolate_simulation() {
