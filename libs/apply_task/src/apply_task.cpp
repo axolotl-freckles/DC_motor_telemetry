@@ -28,9 +28,6 @@ static constexpr ledc_timer_t   PWM_TIMER        = LEDC_TIMER_0;
 static constexpr int            PWM_RESOLUTION   = 9;
 static constexpr uint32_t       PWM_MAX_VAL      = (1<<PWM_RESOLUTION) - 1;
 static constexpr uint32_t       PWM_FREQUENCY_Hz = 100000;
-static constexpr float          voltageBattery    = 25.0f;
-static constexpr float          DUTY_MIN          = 0.10f;
-static constexpr float          DUTY_MAX          = 0.90f;
 static constexpr int            HIGH_GPIO        = 18;
 static constexpr int            LOW_GPIO         = 21;
 static constexpr ledc_channel_t BUCK_CHANNEL     = (ledc_channel_t)1;
@@ -127,7 +124,6 @@ void apply_loop(StateStruct_t &state) {
 	EventBits_t curr_state = 0;
 	float       voltage    = 0.0f;
 	float       dutycycle  = 0.0f;
-	float       applied_voltage = 0.0f;
 	(void)xQueueReceive(voltage_qh, &voltage, portMAX_DELAY);
 	curr_state = xEventGroupGetBits(state_event_gh);
 	if (curr_state & ~ApplyState_e::APPLYING) {
@@ -235,11 +231,10 @@ task::apply::ApplyTask::ApplyTask () : task::StateTask() {
 		.flags = {.output_invert = 0}
 	};
 	ledc_channel_config_t channel_buck_config = channel_boost_config;
-	channel_buck_config.gpio_num = BUCK_PIN;
-	channel_buck_config.channel  = BUCK_CHANNEL;
-	channel_buck_config.flags.output_invert = 0;
 	channel_boost_config.gpio_num = BOOST_PIN;
-	channel_boost_config.channel  = BOOST_CHANNEL;
+	channel_boost_config.channel  = BUCK_CHANNEL;
+	channel_buck_config .gpio_num = BUCK_PIN;
+	channel_buck_config .channel  = BOOST_CHANNEL;
 	channel_boost_config.flags.output_invert = 1;
 
 	error_code = ESP_ERROR_CHECK_WITHOUT_ABORT(

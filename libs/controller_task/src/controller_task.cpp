@@ -15,9 +15,6 @@
 
 #include "esp_log.h"
 #include "esp_timer.h"
-#include <cstdlib>
-#include "freertos/task.h"
-#include "esp_heap_caps.h"
 
 #include "dc_plant.hpp"
 #include "controller.hpp"
@@ -247,7 +244,7 @@ void idle_loop   () {
 	}
 	(void)xEventGroupWaitBits(
 		task_state_event_group_h,
-		ControllerState_e::CONTROL | ControllerState_e::WINDUP | ControllerState_e::ERROR,
+		ControllerState_e::WINDUP | ControllerState_e::ERROR,
 		pdFALSE,
 		pdFALSE,
 		portMAX_DELAY
@@ -433,7 +430,7 @@ esp_err_t task::controller::ControllerTask::start() {
 	}
 	if (ESP_OK == can_start && transition_handler) {
 		transition_ok =
-			transition_handler->update_state(ControllerState_e::CONTROL);
+			transition_handler->update_state(ControllerState_e::WINDUP);
 		if ( !transition_ok ) {
 			ESP_LOGE(LOG_TAG, "Start transition failed");
 			return ESP_ERR_NOT_ALLOWED;
