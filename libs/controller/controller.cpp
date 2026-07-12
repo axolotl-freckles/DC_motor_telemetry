@@ -12,6 +12,8 @@
 
 #include <limits>
 
+#include "sampler_task.hpp"
+
 // TODO: remove this constant and define it somewhere else, this was just to
 //       test the library import
 constexpr float FIRMWARE_TICK_INTERVAL_ms = 100;
@@ -26,23 +28,29 @@ Controller::Controller() :
 void Controller::set_voltage (const float voltage) {
 	this->control_point.voltage = voltage;
 }
-void Controller::set_windup  (const Windup   *windup  ) {
+void Controller::set_windup  (Windup   *windup  ) {
 	this->windup   = windup;
 }
-void Controller::set_winddown(const Winddown *winddown) {
+void Controller::set_winddown(Winddown *winddown) {
 	this->winddown = winddown;
 }
 
-float Controller::read_pcb_current(void) {
-	return std::numeric_limits<float>::signaling_NaN();
+float Controller::read_current(void) {
+	return task::sampler::SamplerTask::get_instance().current_TI();
 }
-float Controller::read_source_voltage(void) {
-	return std::numeric_limits<float>::signaling_NaN();
+float Controller::read_voltage(void) {
+	return task::sampler::SamplerTask::get_instance().current_Volt();
+}
+float Controller::read_speed_rad_s(void) {
+	return task::sampler::SamplerTask::get_instance().current_w();
+}
+float Controller::estimated_load_nm(void) {
+	return task::sampler::SamplerTask::get_instance().estimated_load();
 }
 
 float Controller::get_sample_time_s(void) {
 	return FIRMWARE_TICK_INTERVAL_ms * 1e-3;
 }
 float Controller::get_sample_frequency_hz(void) {
-	return 1.0 / (FIRMWARE_TICK_INTERVAL_ms * 1e-3);
+	return 1.0 / (FIRMWARE_TICK_INTERVAL_ms * 1.e-3f);
 }

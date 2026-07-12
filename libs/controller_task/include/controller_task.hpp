@@ -17,11 +17,12 @@ namespace task {
 
 namespace controller {
 	enum ControllerState_e : EventBits_t {
-		IDLE    = 0b1 <<  0,
-		WINDUP  = 0b1 <<  1,
-		WINDOWN = 0b1 <<  2,
-		CONTROL = 0b1 <<  3,
-		ERROR   = 0b1 << 12
+		IDLE     = 0b1 <<  0,
+		WINDUP   = 0b1 <<  1,
+		WINDOWN  = 0b1 <<  2,
+		CONTROL  = 0b1 <<  3,
+		STOPPING = 0b1 <<  4,
+		ERROR    = 0b1 << 12
 	};
 
 class ControllerTask : public StateTask {
@@ -44,18 +45,6 @@ public:
 
 	virtual ~ControllerTask();
 private:
-	/* Task management variables */
-	StaticEventGroup_t                _controller_state_event_group;
-	StaticEventGroup_t                _controller_sync_event_group;
-	EventGroupHandle_t                _controller_sync_event_group_h;
-	StateSwitcher<ControllerState_e> *_transition_handler = nullptr;
-	/* Runtime variables */
-	Controller                       *_controller         = nullptr;
-	/* Message interface variables */
-	QueueHandle_t                     _setpoint_qh        = nullptr;
-	QueueHandle_t                     _speed_qh           = nullptr;
-	QueueHandle_t                     _csignal_qh         = nullptr;
-
 	ControllerTask();
 
 	esp_err_t wait_sync();

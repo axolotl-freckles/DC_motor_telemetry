@@ -1,9 +1,12 @@
 idf_component_register (
 	SRCS
-		"src/encoder.cpp"
+		"src/sampler_task.cpp"
 	INCLUDE_DIRS
-		"." "include"
+		"."
 	REQUIRES
 		"esp_timer"
+		"globals"
 		"libtask"
+		"encoder"
+		"DC_model"
 	)

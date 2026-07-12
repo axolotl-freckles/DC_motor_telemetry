@@ -5,7 +5,11 @@ idf_component_register (
 		"." "include"
 	REQUIRES
 		"esp_timer"
+		"driver"
+		"globals"
 		"libtask"
 		"controller"
-		"encoder_task"
+		"sampler_task"
+		"apply_task"
+		"telemetry_task"
 	)

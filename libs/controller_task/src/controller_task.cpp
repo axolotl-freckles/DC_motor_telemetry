@@ -11,75 +11,86 @@
 
 #include "controller_task.hpp"
 
+#include "globals.hpp"
+
 #include "esp_log.h"
 #include "esp_timer.h"
 
+#include "dc_plant.hpp"
+#include "controller.hpp"
 #include "controllers/pid_controller.hpp"
-#include "encoder_task.hpp"
+#include "controllers/open_loop_controller.hpp"
+#include "controllers/fixed_sp_controller.hpp"
+#include "windups/LinearWindup.hpp"
+#include "windups/BezierWindup.hpp"
+#include "winddowns/LinearWinddown.hpp"
+#include "winddowns/BezierWinddown.hpp"
+#include "sampler_task.hpp"
+#include "apply_task.hpp"
+#include "telemetry_task.hpp"
+
+#define CONTROLLER_TYPE_PID  0
+#define CONTROLLER_TYPE_OPEN 1
+#define CONTROLLER_TYPE_FIXD 2
+
+#define CONTROLLER_TYPE CONTROLLER_TYPE_OPEN
 
 using namespace task;
 using namespace task::controller;
 
 const char LOG_TAG[] = "controller";
 
-constexpr TickType_t CONTROLLER_TICK_TIME_ms = 2000;
-constexpr int64_t    WINDUP_PERIOD_us        = 6000000;
-constexpr int64_t    WINDOWN_PERIOD_us       = 6000000;
+constexpr TickType_t TELEMETRY_TICK_TIME_ms = SAMPLE_TIME_ms;
+constexpr float      WINDUP_PERIOD_s         = 0.5f;
+constexpr float      WINDOWN_PERIOD_s        = 0.5f;
 constexpr int64_t    WATCHDOG_THRESH_us      = 1000;
-constexpr int64_t    STOP_TIMEOUT_us         = CONTROLLER_TICK_TIME_ms*1000LL;
+constexpr int64_t    STOP_TIMEOUT_us         = TELEMETRY_TICK_TIME_ms*1000LL;
+constexpr float      DEFAULT_SETPOINT        =  0.1f;//30.0f;
+constexpr float      SP_DELTA_THRESHOLD      =  0.1f;
 
 constexpr EventBits_t INIT_OK           = 0b1 << 11;
 constexpr EventBits_t STATE_MASK        = ~(INIT_OK | ControllerState_e::ERROR);
 constexpr EventBits_t PUBLIC_STATE_MASK = ~(INIT_OK);
 constexpr EventBits_t CLEAR_BITS_MASK   = ~(0xff000000UL);
 
-struct StateStruct_t {
-	EventBits_t                      * current_state             = nullptr;
-	Controller                       * controller                = nullptr;
-	float                            * setpoint                  = nullptr;
-	StateSwitcher<ControllerState_e> * transition_handler        = nullptr;
-	EventGroupHandle_t                 task_state_event_group_h  = nullptr;
-	int64_t                          * windx_start               = nullptr;
-};
-struct TaskArgs_t {
-	/* Task management variables */
-	EventGroupHandle_t                *_task_state_event_group_h = nullptr;
-	EventGroupHandle_t                *_controller_sync_event_h  = nullptr;
-	StateSwitcher<ControllerState_e> **_transition_handler       = nullptr;
-	/* Runtime variables */
-	Controller                       **_controller               = nullptr;
-	/* Message interface variables */
-};
-struct TransHandler_ft {
-	Controller *controller  = nullptr;
-	float      *setpoint    = nullptr;
-	int64_t    *windx_start = nullptr;
+/* Task management variables */
+static StaticEventGroup_t         controller_state_event_group;
+static StaticEventGroup_t         controller_sync_event_group;
+StateSwitcher<ControllerState_e> *transition_handler = nullptr;
 
-	bool operator () (ControllerState_e from, ControllerState_e to);
-};
-struct QueueHandles_t {
-	QueueHandle_t setpoint_qh = nullptr;
-	QueueHandle_t speed_qh    = nullptr;
-	QueueHandle_t csignal_qh  = nullptr;
-};
+static EventGroupHandle_t task_state_event_group_h;
+static EventGroupHandle_t controller_sync_event_h;
 
-static QueueHandles_t queues = {
-	.setpoint_qh = nullptr,
-	.speed_qh    = nullptr,
-	.csignal_qh  = nullptr
-};
+/* Message interface variables */
+static QueueHandle_t setpoint_qh = nullptr;
+static QueueHandle_t speed_qh    = nullptr;
+static QueueHandle_t csignal_qh  = nullptr;
 
-static void controller_task_fn(void *args);
+/* Runtime variables */
+static EventBits_t      current_task_state = 0;
+static float            setpoint           = 0.0f;
+static int64_t          windx_start        = 0L;
+static Controller     * dc_controller      = nullptr;
+static Windup         * current_windup   = nullptr;
+static Winddown       * current_winddown = nullptr;
+// static LinearWindup     default_windup  (WINDUP_PERIOD_s, 0.0f, DEFAULT_SETPOINT);
+// static LinearWinddown   default_winddown(WINDOWN_PERIOD_s, DEFAULT_SETPOINT, 0.0f);
+static BezierWindup   default_windup  (WINDUP_PERIOD_s, 0.0f, DEFAULT_SETPOINT);
+static BezierWinddown default_winddown(WINDOWN_PERIOD_s, DEFAULT_SETPOINT, 0.0f);
 
-static void handle_state(const StateStruct_t &state);
-static void handle_error(const StateStruct_t &state);
+static void control_task_fn(void *args);
 
-static void idle_loop   (const StateStruct_t &state);
-static void control_loop(const StateStruct_t &state);
-static void windup_loop (const StateStruct_t &state);
-static void windown_loop(const StateStruct_t &state);
+static void handle_state();
+static void handle_error();
 
-static inline void control_tick(const StateStruct_t &state);
+static void idle_loop   ();
+static void control_loop();
+static void windup_loop ();
+static void windown_loop();
+
+static inline void control_tick();
+
+static bool handle_transition(ControllerState_e from, ControllerState_e to);
 
 static inline const char * state_to_str(EventBits_t state_bits) {
 	if (state_bits & ControllerState_e::ERROR) {
@@ -100,195 +111,252 @@ static inline const char * state_to_str(EventBits_t state_bits) {
 	}
 }
 
-static void controller_task_fn(void *args) {
+static void control_task_fn(void *args) {
+#if CONTROLLER_TYPE == CONTROLLER_TYPE_PID
 	char controller_mem_space[sizeof(PID)                             ] = {0};
+#endif
+#if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
+	char controller_mem_space[sizeof(OpenLoop)                        ] = {0};
+#endif
+#if CONTROLLER_TYPE == CONTROLLER_TYPE_FIXD
+	constexpr int N_SETPOINTS = 3;
+	char controller_mem_space[sizeof(FixedSPController<N_SETPOINTS>)  ] = {0};
+#endif
 	char trans_hand_mem_space[sizeof(StateSwitcher<ControllerState_e>)] = {0};
-	EventGroupHandle_t  task_state_event_group_h;
-	EventGroupHandle_t  controller_sync_event_h;
-	TaskArgs_t         *interface_attr     = (TaskArgs_t*)args;
-	TickType_t          previous_wake_time = xTaskGetTickCount();
-	PID                *controller         = nullptr;
-	EventBits_t         current_state      = ControllerState_e::IDLE;
-	float               setpoint           = 20.0f;
-	int64_t             windx_start        = 0;
-	StateSwitcher<ControllerState_e> *transition_handler = nullptr;
+	TickType_t  previous_wake_time = xTaskGetTickCount();
+	EventBits_t previous_state     = 0;
+	EventBits_t state_delta        = 0;
 
-	task_state_event_group_h = *interface_attr->_task_state_event_group_h;
-	controller_sync_event_h  = *interface_attr->_controller_sync_event_h;
+	current_task_state   = ControllerState_e::IDLE;
+	setpoint        = 0.0f;
+	windx_start     = 0;
+
+	(void)telemetry::TelemetryTask::get_instance();
 
 	transition_handler = new (trans_hand_mem_space) StateSwitcher<ControllerState_e>(
-		*interface_attr->_task_state_event_group_h,
+		task_state_event_group_h,
 		STATE_MASK
 	);
 	transition_handler->update_state(ControllerState_e::IDLE);
 
-	std::function<float ()> error_func = [&setpoint] () -> float {
-		return 0.0f - setpoint;
+#if CONTROLLER_TYPE == CONTROLLER_TYPE_PID
+	std::function<float ()> error_func = (float _setpoint) -> float {
+		return _setpoint - Controller::read_speed_rad_s();
 	};
 
 	controller = new (controller_mem_space) PID(error_func, 3.0f, 2.0f, 1.0f);
-	controller->set_integrator_saturators(10.0);
-
-	TransHandler_ft handle_transition = {
-		.controller  =  controller,
-		.setpoint    = &setpoint,
-		.windx_start = &windx_start,
+	((PID*)controller)->set_integrator_saturators(10.0f);
+#endif
+#if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
+	dc_controller = new (controller_mem_space) OpenLoop();
+#endif
+#if CONTROLLER_TYPE == CONTROLLER_TYPE_FIXD
+	BzSetpoint_t setpoints[N_SETPOINTS] = {
+		{.start_time=0.1f, .trans_time=0.5f, .setpoint=500.0f},
+		{.start_time=1.7f, .trans_time=0.5f, .setpoint=250.0f},
+		{.start_time=3.3f, .trans_time=0.5f, .setpoint=375.0f}
 	};
+	float rs[] = { 252.0f, -1050.0f, 1800.0f, -1575.0f, 700.0f, -126.0f};
+	controller = new (controller_mem_space) FixedSPController<N_SETPOINTS>(
+		setpoints, rs,
+		3.1758f,
+		0.4152f,
+		0.0975f,
+		0.4560f
+	);
+#endif
+
 	transition_handler->set_trans_callback(handle_transition);
-
-	StateStruct_t state = {
-		.current_state            = &current_state,
-		.controller               =  controller,
-		.setpoint                 = &setpoint,
-		.transition_handler       =  transition_handler,
-		.task_state_event_group_h =  task_state_event_group_h,
-		.windx_start              = &windx_start
-	};
-
-	*(interface_attr->_transition_handler) = transition_handler;
-	*(interface_attr->_controller        ) = controller;
 
 	xEventGroupSetBits(task_state_event_group_h, INIT_OK);
 
 	while (true) {
-		current_state = xEventGroupGetBits(task_state_event_group_h);
+		current_task_state  = xEventGroupGetBits(task_state_event_group_h);
+		state_delta    = current_task_state ^ previous_state;
 		(void)xEventGroupClearBits(controller_sync_event_h, CLEAR_BITS_MASK);
-		(void)xEventGroupSetBits  (controller_sync_event_h, current_state);
+		(void)xEventGroupSetBits  (controller_sync_event_h, current_task_state);
 
-		if (current_state & ControllerState_e::ERROR) {
-			handle_error(state);
+		if (current_task_state & ControllerState_e::ERROR) {
+			handle_error();
 		}
 		else {
-			handle_state(state);
+			constexpr EventBits_t WINDX = ControllerState_e::WINDUP
+			                            | ControllerState_e::WINDOWN
+			                            | ControllerState_e::STOPPING;
+			if (state_delta & current_task_state & WINDX ) {
+				windx_start = esp_timer_get_time();
+			}
+			if (  state_delta
+			    & current_task_state
+			    & (ControllerState_e::WINDOWN | ControllerState_e::STOPPING)
+			) {
+				current_winddown->set_st_setpoint(setpoint);
+				if (current_task_state & ControllerState_e::STOPPING) {
+					current_winddown->set_en_setpoint(0.0f);
+				}
+			}
+			handle_state();
 		}
 
+		previous_state = current_task_state;
 		(void)xTaskDelayUntil(
 			&previous_wake_time,
-			pdMS_TO_TICKS(CONTROLLER_TICK_TIME_ms)
+			pdMS_TO_TICKS(TELEMETRY_TICK_TIME_ms)
 		);
 	}
 }
 
-void handle_state(const StateStruct_t &state) {
-	switch (*state.current_state & STATE_MASK) {
+void handle_state() {
+	ESP_LOGD(LOG_TAG, "state: %s", state_to_str(current_task_state & STATE_MASK));
+	switch (current_task_state & STATE_MASK) {
 		case ControllerState_e::IDLE:
-			idle_loop   (state);
+			idle_loop   ();
 			break;
 		case ControllerState_e::CONTROL:
-			control_loop(state);
+			control_loop();
 			break;
 		case ControllerState_e::WINDUP:
-			windup_loop (state);
+			windup_loop ();
 			break;
 		case ControllerState_e::WINDOWN:
-			windown_loop(state);
+		case ControllerState_e::STOPPING:
+			windown_loop();
 			break;
 		default:
 			break;
 	}
 }
 
-void handle_error(const StateStruct_t &state) {
-	EventBits_t error_state =   *state.current_state
+void handle_error() {
+	EventBits_t error_state =  current_task_state
 	                          & ~(ControllerState_e::ERROR);
 
 	// Handle error
 }
 
-inline void control_tick(const StateStruct_t &state) {
+inline void control_tick() {
 	float control_signal       = 0.0f;
-	float speed                = 0.0f;
-	BaseType_t dequeue_success = pdTRUE;
 
-	dequeue_success = xQueuePeek(
-		queues.speed_qh,
-		&speed,
-		pdMS_TO_TICKS(50)
-	);
-
-	if (pdFALSE == dequeue_success) {
-		// TODO: Transition to error state
-		ESP_LOGE(
-			LOG_TAG,
-			"error receiving speed, using prev (%.3e)",
-			speed
-		);
-	}
-	state.controller->loop();
-	control_signal = state.controller->get_control_point().voltage;
-	ESP_LOGI(LOG_TAG, "Control point is: %.3e", control_signal);
-	ESP_LOGI(LOG_TAG, "Setpoint is     : %.3e", *state.setpoint);
-	xQueueOverwrite(queues.csignal_qh, &control_signal);
+	(void)dc_controller->loop(setpoint);
+	control_signal = dc_controller->get_control_point().voltage;
+	ESP_LOGV(LOG_TAG, "Control point is: %.3e", control_signal);
+	ESP_LOGV(LOG_TAG, "Setpoint is     : %.3e", setpoint);
+	xQueueOverwrite(csignal_qh, &control_signal);
 }
 
-void idle_loop   (const StateStruct_t &state) {
+void idle_loop   () {
 	ESP_LOGI(LOG_TAG, "Idling");
-	if ( ESP_OK != encoder::EncoderTask::get_instance().stop() ) {
-		ESP_LOGE(LOG_TAG, "Error while shutting down encoder");
+	if ( ESP_OK != sampler::SamplerTask::get_instance().stop() ) {
+		ESP_LOGE(LOG_TAG, "Error while shutting down sampler");
 	}
 	(void)xEventGroupWaitBits(
-		state.task_state_event_group_h,
+		task_state_event_group_h,
 		ControllerState_e::WINDUP | ControllerState_e::ERROR,
 		pdFALSE,
 		pdFALSE,
 		portMAX_DELAY
 	);
-	if ( ESP_OK != encoder::EncoderTask::get_instance().start() ) {
-		ESP_LOGE(LOG_TAG, "Error starting encoder");
+	/*:: WAIT END ::*/
+	if ( ESP_OK != sampler::SamplerTask::get_instance().start() ) {
+		ESP_LOGE(LOG_TAG, "Error starting sampler");
 		xEventGroupSetBits(
-			state.task_state_event_group_h,
+			task_state_event_group_h,
 			ControllerState_e::ERROR
 		);
 	}
-	state.controller->setup();
-	*state.windx_start = esp_timer_get_time();
-}
-void control_loop(const StateStruct_t &state) {
-	int64_t    curr_time       = esp_timer_get_time();
-	BaseType_t dequeue_success = pdTRUE;
-
-	dequeue_success = xQueuePeek(
-		queues.setpoint_qh,
-		state.setpoint,
-		pdMS_TO_TICKS(50)
-	);
-	if (pdFALSE == dequeue_success) {
-		ESP_LOGW(
-			LOG_TAG,
-			"error receiving setpoint, using prev (%.3e)",
-			*state.setpoint
+	if ( ESP_OK != apply::ApplyTask::get_instance().start() ) {
+		ESP_LOGE(LOG_TAG, "Error starting apply");
+		xEventGroupSetBits(
+			task_state_event_group_h,
+			ControllerState_e::ERROR
 		);
 	}
-	control_tick(state);
+	Windup   *controller_windup   = dc_controller->get_windup  ();
+	Winddown *controller_winddown = dc_controller->get_winddown();
+	current_windup   = controller_windup?   controller_windup   : &default_windup;
+	current_winddown = controller_winddown? controller_winddown : &default_winddown;
+	current_windup->set_st_setpoint(0.0f);
+	dc_controller->setup();
 }
-void windup_loop (const StateStruct_t &state) {
-	int64_t start_time = *state.windx_start;
-	int64_t curr_time  = esp_timer_get_time();
+void control_loop() {
+	int64_t    curr_time       = esp_timer_get_time();
+	float      dequed_setpoint = 0.0f;
+	BaseType_t dequeue_success = pdTRUE;
 
-	if ( curr_time > start_time+WINDUP_PERIOD_us ) {
-		state.transition_handler->update_state(ControllerState_e::CONTROL);
+	dequeue_success = xQueueReceive(
+		setpoint_qh,
+		&dequed_setpoint,
+		0
+	);
+	if (pdFALSE == dequeue_success) {
+		ESP_LOGV(
+			LOG_TAG,
+			"error receiving setpoint, using prev (%.3e)",
+			setpoint
+		);
+	}
+	else {
+		const float setpoint_diff = setpoint - dequed_setpoint;
+		if ( std::abs(setpoint_diff) > SP_DELTA_THRESHOLD ) {
+			ESP_LOGI(LOG_TAG, "Big setpoint dif %e -> %e", setpoint, dequed_setpoint);
+			if ( setpoint < dequed_setpoint ) {
+				current_windup->set_st_setpoint(setpoint);
+				current_windup->set_en_setpoint(dequed_setpoint);
+				transition_handler->update_state(ControllerState_e::WINDUP);
+			}
+			else {
+				current_winddown->set_st_setpoint(setpoint);
+				current_winddown->set_en_setpoint(dequed_setpoint);
+				transition_handler->update_state(ControllerState_e::WINDOWN);
+			}
+		}
+		else {
+			setpoint = dequed_setpoint;
+		}
+	}
+	control_tick();
+}
+void windup_loop () {
+	const int64_t curr_time    = esp_timer_get_time();
+	const float   elapsed_time = (curr_time - windx_start)*1e-6f;
+
+	if ( elapsed_time > current_windup->period() ) {
+		transition_handler->update_state(ControllerState_e::CONTROL);
+		setpoint = current_windup->get_en_setpoint();
+	}
+	else {
+		setpoint = current_windup->step(elapsed_time);
 	}
 
-	*state.setpoint += 3.0f;
-	ESP_LOGI(LOG_TAG, "Windup setpoint: %.3e", *state.setpoint);
-	control_tick(state);
+	ESP_LOGD(LOG_TAG, "Windup setpoint: %.3e", setpoint);
+	control_tick();
 }
-void windown_loop(const StateStruct_t &state) {
-	int64_t start_time = *state.windx_start;
-	int64_t curr_time  = esp_timer_get_time();
+void windown_loop() {
+	const int64_t curr_time    = esp_timer_get_time();
+	const float   elapsed_time = (curr_time - windx_start)*1e-6f;
 
-	if ( curr_time > start_time+WINDOWN_PERIOD_us ) {
-		state.transition_handler->update_state(ControllerState_e::IDLE);
+	if ( elapsed_time > current_winddown->period() ) {
+		switch ( current_task_state & STATE_MASK) {
+			case ControllerState_e::WINDOWN:
+				transition_handler->update_state(ControllerState_e::CONTROL);
+				break;
+			case ControllerState_e::STOPPING:
+				transition_handler->update_state(ControllerState_e::IDLE);
+				break;
+		}
+		setpoint = current_winddown->get_en_setpoint();
+	}
+	else {
+		setpoint = current_winddown->step(elapsed_time);
 	}
 
-	*state.setpoint -= 3.0f;
-	ESP_LOGI(LOG_TAG, "Windown setpoint: %.3e", *state.setpoint);
-	control_tick(state);
+	ESP_LOGD(LOG_TAG, "Windown setpoint: %.3e", setpoint);
+	control_tick();
 }
 
 /* ###################################################### TRANSITION HANDLING */
 
-bool TransHandler_ft::operator()(ControllerState_e from, ControllerState_e to) {
+bool handle_transition(ControllerState_e from, ControllerState_e to) {
 	ESP_LOGI(
 		LOG_TAG,
 		"Transitioning from %s to %s",
@@ -297,20 +365,24 @@ bool TransHandler_ft::operator()(ControllerState_e from, ControllerState_e to) {
 	);
 	switch (to) {
 	case IDLE:
-		if ( WINDUP == from ) {
+		if (    WINDUP  == from
+		     || WINDOWN == from
+		) {
 			return false;
 		}
 		break;
 	case WINDUP:
-		if ( WINDOWN == from ) {
+		if (    WINDOWN  == from
+		     || STOPPING == from
+		) {
 			return false;
 		}
 		break;
 	case WINDOWN:
+	case STOPPING:
 		if (IDLE == from) {
 			return false;
 		}
-		*windx_start = esp_timer_get_time();
 		break;
 	default:
 		break;
@@ -323,7 +395,7 @@ esp_err_t task::controller::ControllerTask::wait_sync() {
 	                                       	_task_state_event_group_h
 	                                       );
 	EventBits_t   current_exec_state     = xEventGroupGetBits(
-	                                       	_controller_sync_event_group_h
+	                                       	controller_sync_event_h
 	                                       );
 	int64_t const trans_attempt_st       = esp_timer_get_time();
 	int64_t       trans_attempt_curr     = 0;
@@ -337,7 +409,7 @@ esp_err_t task::controller::ControllerTask::wait_sync() {
 			vTaskDelay(1);
 		}
 		current_signaled_state = xEventGroupGetBits(_task_state_event_group_h);
-		current_exec_state     = xEventGroupGetBits(_controller_sync_event_group_h);
+		current_exec_state     = xEventGroupGetBits(controller_sync_event_h);
 	}
 	return ESP_OK;
 }
@@ -348,28 +420,28 @@ esp_err_t task::controller::ControllerTask::start() {
 	esp_err_t can_start     = ESP_OK;
 	bool      transition_ok = false;
 
-	if (!queues.setpoint_qh) {
+	if (!setpoint_qh) {
 		ESP_LOGE(LOG_TAG, "No setpoint out queue!");
 		can_start = ESP_ERR_INVALID_STATE;
 	}
-	if (!queues.speed_qh) {
+	if (!speed_qh) {
 		ESP_LOGE(LOG_TAG, "No speed in queue!");
 		can_start = ESP_ERR_INVALID_STATE;
 	}
-	if (!queues.csignal_qh) {
+	if (!csignal_qh) {
 		ESP_LOGE(LOG_TAG, "No control signal out queue!");
 		can_start = ESP_ERR_INVALID_STATE;
 	}
-	if (!_transition_handler) {
+	if (!transition_handler) {
 		can_start = ESP_ERR_INVALID_STATE;
 	}
 
 	if (ESP_OK != wait_sync() ) {
 		can_start = ESP_ERR_TIMEOUT;
 	}
-	if (ESP_OK == can_start && _transition_handler) {
+	if (ESP_OK == can_start && transition_handler) {
 		transition_ok =
-			_transition_handler->update_state(ControllerState_e::WINDUP);
+			transition_handler->update_state(ControllerState_e::WINDUP);
 		if ( !transition_ok ) {
 			ESP_LOGE(LOG_TAG, "Start transition failed");
 			return ESP_ERR_NOT_ALLOWED;
@@ -378,7 +450,7 @@ esp_err_t task::controller::ControllerTask::start() {
 	return can_start;
 }
 esp_err_t task::controller::ControllerTask::stop() {
-	EventBits_t   current_state = 0;
+	EventBits_t current_state = 0;
 
 	if (ESP_OK != wait_sync() ) {
 		return ESP_ERR_TIMEOUT;
@@ -395,47 +467,34 @@ esp_err_t task::controller::ControllerTask::stop() {
 		ESP_LOGE(LOG_TAG, "On windown!");
 		return ESP_ERR_INVALID_STATE;
 	}
-	if (_transition_handler) {
-		_transition_handler->update_state(ControllerState_e::WINDOWN);
+	if (current_state & ControllerState_e::STOPPING) {
+		ESP_LOGE(LOG_TAG, "Already stopping!");
+		return ESP_ERR_INVALID_STATE;
+	}
+	if (transition_handler) {
+		transition_handler->update_state(ControllerState_e::STOPPING);
 	}
 	return ESP_OK;
 }
 
 task::controller::ControllerTask::ControllerTask()
 :	StateTask()
-	/* Task management variables */
-	, _controller_state_event_group  ()
-	, _controller_sync_event_group   ()
-	, _controller_sync_event_group_h (nullptr)
-	, _transition_handler            (nullptr)
-	/* Runtime variables */
-	, _controller (nullptr)
-	/* Message interface variables */
-	, _setpoint_qh()
-	, _speed_qh   ()
-	, _csignal_qh ()
 {
-	TaskArgs_t args {
-		/* Task management variables */
-		._task_state_event_group_h = &_task_state_event_group_h,
-		._controller_sync_event_h  = &_controller_sync_event_group_h,
-		._transition_handler       = &_transition_handler,
-		/* Runtime variables */
-		._controller = &_controller,
-		/* Message interface variables */
-	};
 	_task_state_event_group_h = xEventGroupCreateStatic(
-		&_controller_state_event_group
+		&controller_state_event_group
 	);
-	_controller_sync_event_group_h = xEventGroupCreateStatic(
-		&_controller_state_event_group
+	controller_sync_event_h = xEventGroupCreateStatic(
+		&controller_sync_event_group
 	);
+	task_state_event_group_h = _task_state_event_group_h;
+	controller_sync_event_h  = controller_sync_event_h;
+
 	xTaskCreate(
-		controller_task_fn,
+		control_task_fn,
 		"controller_task",
-		2048 + 512,
-		&args,
-		3,
+		2048+512,
+		nullptr,
+		2,
 		&_frtos_task_h
 	);
 	xEventGroupWaitBits(
@@ -454,17 +513,13 @@ ControllerTask& task::controller::ControllerTask::get_instance() {
 }
 
 void task::controller::ControllerTask::set_params(const config_params& params) {
-	_setpoint_qh = params.setpoint_qh;
-	_speed_qh    = params.speed_qh;
-	_csignal_qh  = params.control_signal_qh;
-
-	queues.setpoint_qh = _setpoint_qh;
-	queues.speed_qh    = _speed_qh;
-	queues.csignal_qh  = _csignal_qh;
+	setpoint_qh = params.setpoint_qh;
+	speed_qh    = params.speed_qh;
+	csignal_qh  = params.control_signal_qh;
 }
 
 EventBits_t task::controller::ControllerTask::get_state() {
-	return xEventGroupGetBits(_controller_sync_event_group_h)
+	return xEventGroupGetBits(controller_sync_event_h)
 	       & PUBLIC_STATE_MASK;
 }
 
@@ -473,7 +528,7 @@ esp_err_t task::controller::ControllerTask::wait_state(
 ) {
 	EventBits_t obtained_status = 0;
 	obtained_status = xEventGroupWaitBits(
-		_controller_sync_event_group_h,
+		controller_sync_event_h,
 		state | ControllerState_e::ERROR,
 		pdFALSE, pdFALSE,
 		timeout
