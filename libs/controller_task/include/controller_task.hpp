@@ -29,7 +29,6 @@ class ControllerTask : public StateTask {
 public:
 	struct config_params {
 		QueueHandle_t setpoint_qh;
-		QueueHandle_t speed_qh;
 		QueueHandle_t control_signal_qh;
 	};
 

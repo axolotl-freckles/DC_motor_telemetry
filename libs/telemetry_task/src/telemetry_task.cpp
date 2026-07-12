@@ -55,14 +55,14 @@ void telemetry_task_fn(void *args) {
 		(void)printf(
 			 "%10.3e"
 			",%10.3e"
-			// ",%10.3e"
+			",%10.3e"
 			// ",%10.3e"
 			// ",%10.3e"
 			",%10.3e\n",
 			received_data.timestamp,
 			received_data.setpoint,
-			received_data.set_voltage//,
-			// received_data.w_rad_s,
+			received_data.set_voltage,
+			received_data.w_rad_s//,
 			// received_data.I_amp,
 			// received_data.estimated_load
 		);

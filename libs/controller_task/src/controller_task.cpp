@@ -20,7 +20,7 @@
 #include "controller.hpp"
 #include "controllers/pid_controller.hpp"
 #include "controllers/open_loop_controller.hpp"
-#include "controllers/fixed_sp_controller.hpp"
+#include "controllers/ideal_control_law.hpp"
 #include "windups/LinearWindup.hpp"
 #include "windups/BezierWindup.hpp"
 #include "winddowns/LinearWinddown.hpp"
@@ -29,11 +29,11 @@
 #include "apply_task.hpp"
 #include "telemetry_task.hpp"
 
-#define CONTROLLER_TYPE_PID  0
-#define CONTROLLER_TYPE_OPEN 1
-#define CONTROLLER_TYPE_FIXD 2
+#define CONTROLLER_TYPE_PID   0
+#define CONTROLLER_TYPE_OPEN  1
+#define CONTROLLER_TYPE_IDEAL 2
 
-#define CONTROLLER_TYPE CONTROLLER_TYPE_OPEN
+#define CONTROLLER_TYPE CONTROLLER_TYPE_IDEAL
 
 using namespace task;
 using namespace task::controller;
@@ -63,7 +63,6 @@ static EventGroupHandle_t controller_sync_event_h;
 
 /* Message interface variables */
 static QueueHandle_t setpoint_qh = nullptr;
-static QueueHandle_t speed_qh    = nullptr;
 static QueueHandle_t csignal_qh  = nullptr;
 
 /* Runtime variables */
@@ -118,9 +117,8 @@ static void control_task_fn(void *args) {
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
 	char controller_mem_space[sizeof(OpenLoop)                        ] = {0};
 #endif
-#if CONTROLLER_TYPE == CONTROLLER_TYPE_FIXD
-	constexpr int N_SETPOINTS = 3;
-	char controller_mem_space[sizeof(FixedSPController<N_SETPOINTS>)  ] = {0};
+#if CONTROLLER_TYPE == CONTROLLER_TYPE_IDEAL
+	char controller_mem_space[sizeof(IdealControlLaw)                 ] = {0};
 #endif
 	char trans_hand_mem_space[sizeof(StateSwitcher<ControllerState_e>)] = {0};
 	TickType_t  previous_wake_time = xTaskGetTickCount();
@@ -144,21 +142,14 @@ static void control_task_fn(void *args) {
 		return _setpoint - Controller::read_speed_rad_s();
 	};
 
-	controller = new (controller_mem_space) PID(error_func, 3.0f, 2.0f, 1.0f);
+	dc_controller = new (controller_mem_space) PID(error_func, 3.0f, 2.0f, 1.0f);
 	((PID*)controller)->set_integrator_saturators(10.0f);
 #endif
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
 	dc_controller = new (controller_mem_space) OpenLoop();
 #endif
-#if CONTROLLER_TYPE == CONTROLLER_TYPE_FIXD
-	BzSetpoint_t setpoints[N_SETPOINTS] = {
-		{.start_time=0.1f, .trans_time=0.5f, .setpoint=500.0f},
-		{.start_time=1.7f, .trans_time=0.5f, .setpoint=250.0f},
-		{.start_time=3.3f, .trans_time=0.5f, .setpoint=375.0f}
-	};
-	float rs[] = { 252.0f, -1050.0f, 1800.0f, -1575.0f, 700.0f, -126.0f};
-	controller = new (controller_mem_space) FixedSPController<N_SETPOINTS>(
-		setpoints, rs,
+#if CONTROLLER_TYPE == CONTROLLER_TYPE_IDEAL
+	dc_controller = new (controller_mem_space) IdealControlLaw(
 		3.1758f,
 		0.4152f,
 		0.0975f,
@@ -424,10 +415,6 @@ esp_err_t task::controller::ControllerTask::start() {
 		ESP_LOGE(LOG_TAG, "No setpoint out queue!");
 		can_start = ESP_ERR_INVALID_STATE;
 	}
-	if (!speed_qh) {
-		ESP_LOGE(LOG_TAG, "No speed in queue!");
-		can_start = ESP_ERR_INVALID_STATE;
-	}
 	if (!csignal_qh) {
 		ESP_LOGE(LOG_TAG, "No control signal out queue!");
 		can_start = ESP_ERR_INVALID_STATE;
@@ -514,7 +501,6 @@ ControllerTask& task::controller::ControllerTask::get_instance() {
 
 void task::controller::ControllerTask::set_params(const config_params& params) {
 	setpoint_qh = params.setpoint_qh;
-	speed_qh    = params.speed_qh;
 	csignal_qh  = params.control_signal_qh;
 }
 
