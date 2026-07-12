@@ -90,7 +90,7 @@ void apply_task_fn (void* raw_args) {
 			handle_state(state);
 		}
 
-		vTaskDelay(SAMPLE_TIME_ms);
+		vTaskDelay(1);
 	}
 
 }
@@ -147,7 +147,7 @@ QueueHandle_t task::apply::ApplyTask::createQueue(UBaseType_t len) {
 }
 
 esp_err_t task::apply::ApplyTask::start() {
-	return ESP_OK;
+	//return ESP_OK;
 	esp_err_t   can_start     = ESP_OK;
 	EventBits_t curr_state    = xEventGroupGetBits(_task_state_event_group_h);
 	bool        transition_ok = false;
@@ -161,12 +161,12 @@ esp_err_t task::apply::ApplyTask::start() {
 	}
 	if (ESP_OK == can_start) {
 		xEventGroupClearBits(_task_state_event_group_h, curr_state);
-		xEventGroupSetBits  (_task_state_event_group_h, ApplyState_e::IDLE);
+		xEventGroupSetBits  (_task_state_event_group_h, ApplyState_e::APPLYING);
 	}
 	return can_start;
 }
 esp_err_t task::apply::ApplyTask::stop() {
-	return ESP_OK;
+	//return ESP_OK;
 	EventBits_t curr_state    = xEventGroupGetBits(_task_state_event_group_h);
 	if (curr_state & ApplyState_e::ERROR) {
 		ESP_LOGE(LOG_TAG, "Apply in error state!");
@@ -174,7 +174,7 @@ esp_err_t task::apply::ApplyTask::stop() {
 	}
 	xEventGroupClearBits(_task_state_event_group_h, curr_state);
 	xEventGroupSetBits  (_task_state_event_group_h, ApplyState_e::IDLE);
-	return true;
+	return ESP_OK;
 }
 
 void task::apply::ApplyTask::set_params(const config_params& params) {

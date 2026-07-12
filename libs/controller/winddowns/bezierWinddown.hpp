@@ -31,8 +31,6 @@ private:
     // Constantes matemáticas internas para Bézier
     static constexpr float R1 = 252.0f, R2 = 1050.0f, R3 = 1800.0f;
     static constexpr float R4 = 1575.0f, R5 = 700.0f, R6 = 126.0f;
-    static constexpr float RAD_S_TO_RPM = 9.5492965855f;
-    static constexpr float RPM_SCALING_FACTOR = 4.5f;
 
     // Función auxiliar matemática
     float calculate_bezier(float k1) const;
