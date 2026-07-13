@@ -10,6 +10,8 @@
  */
 #include "telemetry_task.hpp"
 
+#include <cctype>
+#include <cstdlib>
 #include <stdio.h>
 #include <string.h>
 
@@ -26,6 +28,10 @@ constexpr TickType_t TELEMETRY_TICK_TIME_ms   = 50;
 
 static constexpr const char *TAG = "telemetry_task";
 static constexpr const char *WS_URI = "ws://192.168.137.1:8080";
+static constexpr float OBSERVED_SPEED_CONST = 3.0f;
+static constexpr float OBSERVED_CURRENT_CONST = 5.0f;
+static constexpr float OBSERVED_TORQUE_CONST = 1.0f;
+static constexpr float DUTY_SETPOINT_DEFAULT_PERCENT = 20.0f;
 
 constexpr EventBits_t INIT_OK = 0b1 << 11;
 
@@ -36,6 +42,7 @@ struct TaskArgs_t {
 
 static TaskArgs_t s_task_args = {};
 static esp_websocket_client_handle_t s_ws_client = nullptr;
+static QueueHandle_t s_ws_setpoint_queue_h = nullptr;
 
 static void telemetry_task_fn(void *args);
 static void websocket_app_start(void);
@@ -73,31 +80,37 @@ void telemetry_task_fn(void *args) {
 
 	while (true)
 	{
-		//uint64_t trans_start = esp_timer_get_time();
 		clear_data (received_data);
 		(void)xQueueReceive(data_queue_h, &received_data, portMAX_DELAY);
+
+		const float velocidad_real = received_data.w_rad_s;
+		const float velocidad_observada = OBSERVED_SPEED_CONST;
+		const float corriente_observada = OBSERVED_CURRENT_CONST;
+		const float torque_observado = OBSERVED_TORQUE_CONST;
+		const float voltaje = received_data.set_voltage;
+		const float tiempo = received_data.timestamp;
+
 		(void)printf(
-			 "%10.3e"
-			",%10.3e"
-			",%10.3e"
-			// ",%10.3e"
-			// ",%10.3e"
-			",%10.3e\n",
-			received_data.timestamp,
-			received_data.setpoint,
-			received_data.set_voltage,
-			received_data.w_rad_s//,
-			// received_data.I_amp,
-			// received_data.estimated_load
+			"%10.6e,%10.6e,%10.6e,%10.6e,%10.6e,%10.6e\n",
+			velocidad_real,
+			velocidad_observada,
+			corriente_observada,
+			torque_observado,
+			voltaje,
+			tiempo
 		);
 
 		if ((s_ws_client != nullptr) && esp_websocket_client_is_connected(s_ws_client)) {
             char tx[128];
 
             snprintf(tx, sizeof(tx), 
-				"%10.6e,%10.6e",
-                received_data.timestamp,
-                received_data.w_rad_s
+				"%10.6e,%10.6e,%10.6e,%10.6e,%10.6e,%10.6e\n",
+				velocidad_real,
+				velocidad_observada,
+				corriente_observada,
+				torque_observado,
+				voltaje,
+				tiempo
             );
 
             esp_websocket_client_send_text(
@@ -108,10 +121,6 @@ void telemetry_task_fn(void *args) {
             );
         }
 
-		//(void)xTaskDelayUntil(
-		//	&previous_wake_time,
-		//	pdMS_TO_TICKS(TELEMETRY_TICK_TIME_ms)
-		//);
 	}
 }
 
@@ -140,6 +149,42 @@ static void websocket_event_handler(
 			break;
 		case WEBSOCKET_EVENT_DATA:
 			ESP_LOGD(TAG, "WEBSOCKET_EVENT_DATA len=%d op=%d", data->data_len, data->op_code);
+			if ((s_ws_setpoint_queue_h != nullptr) && (data->data_ptr != nullptr) && (data->data_len > 0)) {
+				char rx_buffer[32] = {0};
+				int copy_len = data->data_len;
+				if (copy_len >= static_cast<int>(sizeof(rx_buffer))) {
+					copy_len = static_cast<int>(sizeof(rx_buffer) - 1);
+				}
+
+				memcpy(rx_buffer, data->data_ptr, copy_len);
+				rx_buffer[copy_len] = '\0';
+
+				for (int i = 0; i < copy_len; ++i) {
+					if (rx_buffer[i] == ',') {
+						rx_buffer[i] = '.';
+					}
+				}
+
+				char *start = rx_buffer;
+				while ((*start != '\0') && std::isspace(static_cast<unsigned char>(*start))) {
+					start++;
+				}
+
+				char *endptr = nullptr;
+				const float requested_percent = strtof(start, &endptr);
+
+				while ((endptr != nullptr) && (*endptr != '\0') && std::isspace(static_cast<unsigned char>(*endptr))) {
+					endptr++;
+				}
+
+				if ((start != endptr) && (endptr != nullptr) && (*endptr == '\0')) {
+					(void)xQueueOverwrite(s_ws_setpoint_queue_h, &requested_percent);
+					ESP_LOGI(TAG, "WS setpoint received: %.2f %%", requested_percent);
+				}
+				else {
+					ESP_LOGW(TAG, "Invalid WS setpoint payload: '%s'", rx_buffer);
+				}
+			}
 			break;
 		case WEBSOCKET_EVENT_ERROR:
 			ESP_LOGE(TAG, "WEBSOCKET_EVENT_ERROR");
@@ -203,6 +248,12 @@ task::telemetry::TelemetryTask::TelemetryTask() {
 		&_telemetry_state_event_group
 	);
 	_data_queue_h = xQueueCreate(DATA_QUEUE_LEN, sizeof(telemetry_data_t));
+	_ws_setpoint_queue_h = xQueueCreate(1, sizeof(float));
+	s_ws_setpoint_queue_h = _ws_setpoint_queue_h;
+	if (_ws_setpoint_queue_h != nullptr) {
+		float default_percent = DUTY_SETPOINT_DEFAULT_PERCENT;
+		(void)xQueueOverwrite(_ws_setpoint_queue_h, &default_percent);
+	}
 	websocket_app_start();
 
 	s_task_args = TaskArgs_t {

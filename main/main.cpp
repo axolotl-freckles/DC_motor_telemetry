@@ -45,6 +45,9 @@ static constexpr float TWO_PI = 6.2831853071795864769f;
 static constexpr float VOLTAGE_BATTERY = 25.0f;
 static constexpr float DUTY_MIN = 0.10f;
 static constexpr float DUTY_MAX = 0.90f;
+static constexpr float WS_DUTY_MIN_PERCENT = 5.0f;
+static constexpr float WS_DUTY_MAX_PERCENT = 60.0f;
+static constexpr float WS_DUTY_DEFAULT_PERCENT = 20.0f;
 static constexpr int LOG_PERIOD_ms = 1000;
 static constexpr int WAIT_LOG_PERIOD_ms = 3000;
 static constexpr int INPUT_POLL_ms = 100;
@@ -264,20 +267,42 @@ extern "C" void app_main(void)
 	sampler_task   ->set_params(sampler_config);
 	apply_task     ->set_params(apply_config);
 	QueueHandle_t telemetry_qh = telemetry_task->data_queue();
+	QueueHandle_t ws_setpoint_qh = telemetry_task->ws_setpoint_queue();
 
 	if (TEST_FIXED_DUTY_20_MODE) {
 		ESP_ERROR_CHECK(sampler_task->start());
 		ESP_ERROR_CHECK(apply_task->start());
 
-		const float fixed_duty = 0.20f;
-		const float fixed_voltage = VOLTAGE_BATTERY * fixed_duty / (1.0f - fixed_duty);
+		float duty_percent = WS_DUTY_DEFAULT_PERCENT;
+		float duty = duty_percent * 0.01f;
+		float control_voltage = VOLTAGE_BATTERY * duty / (1.0f - duty);
 		const int64_t telemetry_period_us = 50 * 1000LL;
 		int64_t last_telemetry_us = 0;
 
-		ESP_LOGW(TAG, "TEST_FIXED_DUTY_20_MODE enabled: duty fixed at %.1f%% (u=%.2f V)", fixed_duty * 100.0f, fixed_voltage);
+		ESP_LOGW(TAG, "TEST_FIXED_DUTY_20_MODE enabled: WS duty control active (%.1f%%..%.1f%%)", WS_DUTY_MIN_PERCENT, WS_DUTY_MAX_PERCENT);
 
 		while (true) {
-			xQueueOverwrite(cpoint_qh, &fixed_voltage);
+			float requested_duty_percent = 0.0f;
+			if ((ws_setpoint_qh != nullptr) && (pdTRUE == xQueueReceive(ws_setpoint_qh, &requested_duty_percent, 0))) {
+				const float clamped_percent = clampf(requested_duty_percent, WS_DUTY_MIN_PERCENT, WS_DUTY_MAX_PERCENT);
+				duty_percent = clamped_percent;
+				duty = duty_percent * 0.01f;
+				control_voltage = VOLTAGE_BATTERY * duty / (1.0f - duty);
+
+				if (fabsf(clamped_percent - requested_duty_percent) > 1e-3f) {
+					ESP_LOGW(
+						TAG,
+						"WS setpoint %.2f%% out of range, clamped to %.2f%%",
+						requested_duty_percent,
+						clamped_percent
+					);
+				}
+				else {
+					ESP_LOGI(TAG, "WS duty setpoint applied: %.2f%%", duty_percent);
+				}
+			}
+
+			xQueueOverwrite(cpoint_qh, &control_voltage);
 
 			const int64_t now_us = esp_timer_get_time();
 			if (now_us - last_telemetry_us >= telemetry_period_us) {
@@ -289,8 +314,8 @@ extern "C" void app_main(void)
 
 				task::telemetry::telemetry_data_t package = {
 					.timestamp      = now_us * 1e-6f,
-					.setpoint       = fixed_duty,
-					.set_voltage    = fixed_voltage,
+					.setpoint       = duty,
+					.set_voltage    = control_voltage,
 					.w_rad_s        = speed_rad_s,
 					.I_amp          = sampler_task->current_TI(),
 					.estimated_load = sampler_task->estimated_load()
@@ -305,8 +330,8 @@ extern "C" void app_main(void)
 				ESP_LOGI(
 					TAG,
 					"DUTY_TEST duty=%.1f%% | u=%.2f V | act=%.1f rpm | pulse_age=%.1f ms",
-					fixed_duty * 100.0f,
-					fixed_voltage,
+					duty_percent,
+					control_voltage,
 					speed_rpm,
 					last_pulse_age_us * 1e-3f
 				);

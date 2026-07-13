@@ -31,6 +31,7 @@ class TelemetryTask : StateTask {
 public:
 	static TelemetryTask& get_instance();
 	QueueHandle_t data_queue() { return _data_queue_h; }
+	QueueHandle_t ws_setpoint_queue() { return _ws_setpoint_queue_h; }
 
 	virtual esp_err_t start() override { return ESP_OK; }
 	virtual esp_err_t stop () override { return ESP_OK; }
@@ -42,6 +43,7 @@ protected:
 private:
 	StaticEventGroup_t _telemetry_state_event_group;
 	QueueHandle_t      _data_queue_h;
+	QueueHandle_t      _ws_setpoint_queue_h;
 
 	TelemetryTask();
 };
