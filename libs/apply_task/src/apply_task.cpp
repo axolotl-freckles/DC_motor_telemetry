@@ -135,6 +135,7 @@ void apply_loop(StateStruct_t &state) {
 	}
 
 	duty_100 = voltage / (voltage + POWER_VOLTAGE);
+	duty_100 = std::clamp(duty_100, 0.05f, 0.95f);
 	dutycycle = duty_100*PWM_MAX_VAL;
 	dutycycle = std::clamp(dutycycle, PWM_CLIP_MIN, PWM_CLIP_MAX);
 	ledc_set_duty_and_update(LEDC_SPEED_MODE,  BUCK_CHANNEL, duty_100*PWM_MAX_VAL , 0);

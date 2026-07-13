@@ -91,7 +91,7 @@ task::telemetry::TelemetryTask::TelemetryTask() {
 	xTaskCreate(
 		telemetry_task_fn,
 		"telemetry_task",
-		1024,
+		2048,
 		&args,
 		3,
 		&_frtos_task_h

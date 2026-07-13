@@ -33,7 +33,7 @@
 #define CONTROLLER_TYPE_OPEN  1
 #define CONTROLLER_TYPE_IDEAL 2
 
-#define CONTROLLER_TYPE CONTROLLER_TYPE_PID
+#define CONTROLLER_TYPE CONTROLLER_TYPE_OPEN
 
 using namespace task;
 using namespace task::controller;
@@ -500,7 +500,7 @@ task::controller::ControllerTask::ControllerTask()
 	xTaskCreate(
 		control_task_fn,
 		"controller_task",
-		2048+512,
+		2048+512+256,
 		nullptr,
 		2,
 		&_frtos_task_h

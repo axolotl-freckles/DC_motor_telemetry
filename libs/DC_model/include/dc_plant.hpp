@@ -134,7 +134,7 @@ public:
 		float                                    sample_time_s
 	);
 private:
-	static constexpr int64_t ONE_SH  = 1LL<<20;
+	static constexpr int64_t ONE_SH  = 1LL<<10;
 	static constexpr float   ONE_SHf = (float)ONE_SH;
 
 	/* dc_parameters    _parameters; */

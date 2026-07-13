@@ -301,7 +301,7 @@ EventBits_t task::sampler::SamplerTask::get_state() {
 }
 
 float task::sampler::SamplerTask::current_w()  {
-	return encoder.getW_rads();
+	return DCMotorObserver_64::from_repr(encoder.getW_rads_i());
 }
 float task::sampler::SamplerTask::current_TL() {
 	return DCMotorObserver_64::from_repr(estimated_load_Nm_sh);
