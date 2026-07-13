@@ -10,6 +10,8 @@
  */
 #pragma once
 
+#include <cstdint>
+
 namespace DCPlant {
 
 struct dc_parameters
@@ -81,8 +83,8 @@ public:
 	);
 
 	EstimationResults step (
-		const float amature_volt,
-		const dc_state    correct_state
+		const float    amature_volt,
+		const dc_state correct_state
 	);
 
 	void reset();
@@ -99,6 +101,64 @@ private:
 
 	dc_state         _state;
 	float            _estimated_load;
+};
+
+class DCMotorObserver_64 {
+public:
+	struct EstimationResults {
+		int64_t I_amp_sh   = 0;
+		int64_t load_Nm_sh = 0;
+	};
+
+	inline static int64_t to_repr  (float   value) { return (int64_t)(value*ONE_SH); }
+	inline static float   from_repr(int64_t value) { return           value/ONE_SHf; }
+	constexpr static int64_t to_repr_ctxpr  (float   value) { return (int64_t)(value*ONE_SH); }
+	constexpr static float   from_repr_ctxpr(int64_t value) { return           value/ONE_SHf; }
+
+	EstimationResults step(
+		const int64_t amature_volt_sh,
+		const int64_t w_rad_s_sh
+	);
+
+	void reset();
+
+	const   dc_parameters parameters      () const;
+	float                 sample_time     () const;
+	const   dc_state      state           () const;
+	float                 estimated_load  () const;
+	int64_t               estimated_load_i() const {return _estimated_load;}
+
+	DCMotorObserver_64(
+		const dc_parameters                     &parameters,
+		const DCMotorObserver::EstimationParams &es_params,
+		float                                    sample_time_s
+	);
+private:
+	static constexpr int64_t ONE_SH  = 1LL<<20;
+	static constexpr float   ONE_SHf = (float)ONE_SH;
+
+	/* dc_parameters    _parameters; */
+	const int64_t _res_ohm        = 0; /* Amature resistance          */
+	const int64_t _inductance     = 0; /* Inductance of amature       */
+	const int64_t _moment_kg_m2   = 0; /* Moment of inertia           */
+	const int64_t _viscous_u      = 0; /* Viscous friction coeficient */
+	const int64_t _Kt_Nm_A        = 0; /* Torque constant             */
+	const int64_t _Kb_V_rad_s     = 0; /* Back-emf constant           */
+	/* EstimationParams _es_params;  */
+	const int64_t _alfa_1         = 0;
+	const int64_t _alfa_2         = 0;
+	const int64_t _alfa_3         = 0;
+	const int64_t _k_1            = 0;
+	const int64_t _k_2            = 0;
+	const int64_t _k_3            = 0;
+	/* ----------------------------- */
+	const int64_t _sample_time_s  = 0;
+
+	/* dc_state         _state;      */
+	int64_t _w_rad_s        = 0; /* Angular speed   */
+	int64_t _I_amp          = 0; /* Amature current */
+	/* ----------------------------- */
+	int64_t _estimated_load = 0;
 };
 
 }

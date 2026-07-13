@@ -39,7 +39,6 @@ public:
 	float current_TL();
 	float current_TI();
 	float current_Volt();
-	float estimated_load();
 	const Encoder &get_encoder() const;
 
 	void set_applied_voltage(float applied_voltage);

@@ -10,6 +10,8 @@
  */
 #include "apply_task.hpp"
 
+#include <algorithm>
+
 #include "esp_log.h"
 #include "driver/ledc.h"
 
@@ -27,6 +29,8 @@ static constexpr float POWER_VOLTAGE = 25.0f;
 static constexpr ledc_timer_t   PWM_TIMER        = LEDC_TIMER_0;
 static constexpr int            PWM_RESOLUTION   = 9;
 static constexpr uint32_t       PWM_MAX_VAL      = (1<<PWM_RESOLUTION) - 1;
+static constexpr uint32_t       PWM_CLIP_MIN     = 0.05f*PWM_MAX_VAL;
+static constexpr uint32_t       PWM_CLIP_MAX     = 0.95f*PWM_MAX_VAL;
 static constexpr uint32_t       PWM_FREQUENCY_Hz = 100000;
 static constexpr int            HIGH_GPIO        = 18;
 static constexpr int            LOW_GPIO         = 21;
@@ -41,7 +45,6 @@ struct StateStruct_t {
 };
 
 const ledc_timer_config_t   pwm_timer_config = {
-	//.speed_mode      = LEDC_SPEED_MODE,
 	.speed_mode      = LEDC_SPEED_MODE,
 	.duty_resolution = (ledc_timer_bit_t)PWM_RESOLUTION,
 	.timer_num       = PWM_TIMER,
@@ -123,19 +126,22 @@ void idle_loop(StateStruct_t &state) {
 void apply_loop(StateStruct_t &state) {
 	EventBits_t curr_state = 0;
 	float       voltage    = 0.0f;
-	float       dutycycle  = 0.0f;
+	float       duty_100   = 0.0f;
+	uint32_t    dutycycle  = 0;
 	(void)xQueueReceive(voltage_qh, &voltage, portMAX_DELAY);
 	curr_state = xEventGroupGetBits(state_event_gh);
 	if (curr_state & ~ApplyState_e::APPLYING) {
 		return;
 	}
 
-	dutycycle = voltage / (voltage + POWER_VOLTAGE);
-	dutycycle = std::max(dutycycle, 0.1f);
-	dutycycle = std::min(dutycycle, 0.9f);
-	ledc_set_duty_and_update(LEDC_SPEED_MODE,  BUCK_CHANNEL, dutycycle*PWM_MAX_VAL , 0);
-	ledc_set_duty_and_update(LEDC_SPEED_MODE, BOOST_CHANNEL, dutycycle*PWM_MAX_VAL , 0);
-	task::sampler::SamplerTask::get_instance().set_applied_voltage( POWER_VOLTAGE*dutycycle/(1-dutycycle) );
+	duty_100 = voltage / (voltage + POWER_VOLTAGE);
+	dutycycle = duty_100*PWM_MAX_VAL;
+	dutycycle = std::clamp(dutycycle, PWM_CLIP_MIN, PWM_CLIP_MAX);
+	ledc_set_duty_and_update(LEDC_SPEED_MODE,  BUCK_CHANNEL, duty_100*PWM_MAX_VAL , 0);
+	ledc_set_duty_and_update(LEDC_SPEED_MODE, BOOST_CHANNEL, duty_100*PWM_MAX_VAL , 0);
+
+	duty_100 = ((float)dutycycle)/PWM_MAX_VAL;
+	task::sampler::SamplerTask::get_instance().set_applied_voltage( POWER_VOLTAGE*duty_100/(1-duty_100) );
 }
 
 /* ###################################################### TRANSITION HANDLING */
@@ -176,7 +182,7 @@ esp_err_t task::apply::ApplyTask::stop() {
 }
 
 void task::apply::ApplyTask::set_params(const config_params& params) {
-	voltage_qh              = params.voltage_queue_h;
+	voltage_qh = params.voltage_queue_h;
 }
 
 ApplyTask& task::apply::ApplyTask::get_instance() {

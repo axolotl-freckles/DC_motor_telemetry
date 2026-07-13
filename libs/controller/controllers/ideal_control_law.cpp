@@ -19,7 +19,6 @@ void IdealControlLaw::setup() {
 }
 
 Controller::ErrorType_t IdealControlLaw::loop(float setpoint) {
-	static uint8_t n_ticks = 1;
 	const float speed_w = read_speed_rad_s();
 	const float current = read_current();
 	const float voltage_setpoint = -_K1*speed_w
@@ -27,24 +26,6 @@ Controller::ErrorType_t IdealControlLaw::loop(float setpoint) {
 	                               -_Ki*_z
 	                               +_Nu*setpoint;
 	_z += speed_w - setpoint;
-
-	if (n_ticks >= 4) {
-		task::telemetry::telemetry_data_t package = {
-			.timestamp      = esp_timer_get_time()*1e-6f,
-			.setpoint       = setpoint,
-			.set_voltage    = voltage_setpoint,
-			.w_rad_s        = speed_w,
-			.I_amp          = current,
-			.estimated_load = estimated_load_nm()
-		};
-		xQueueSend(
-			task::telemetry::TelemetryTask::get_instance().data_queue(),
-			&package,
-			0
-		);
-		n_ticks = 0;
-	}
-	n_ticks++;
 
 	set_voltage(voltage_setpoint);
 	return Controller::ErrorType_t::OK;

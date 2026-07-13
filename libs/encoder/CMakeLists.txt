@@ -1,5 +1,5 @@
 idf_component_register(
     SRCS "encoder.cpp"
     INCLUDE_DIRS "."
-    REQUIRES "driver" "esp_timer"
+    REQUIRES "driver" "esp_timer" "DC_model"
 )

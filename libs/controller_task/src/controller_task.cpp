@@ -228,13 +228,32 @@ void handle_error() {
 }
 
 inline void control_tick() {
-	float control_signal       = 0.0f;
+	static uint8_t  n_ticks        = 1;
+	float           control_signal = 0.0f;
 
 	(void)dc_controller->loop(setpoint);
 	control_signal = dc_controller->get_control_point().voltage;
 	ESP_LOGV(LOG_TAG, "Control point is: %.3e", control_signal);
 	ESP_LOGV(LOG_TAG, "Setpoint is     : %.3e", setpoint);
 	xQueueOverwrite(csignal_qh, &control_signal);
+
+	if (n_ticks >= 10) {
+		task::telemetry::telemetry_data_t package = {
+			.timestamp      = esp_timer_get_time()*1e-6f,
+			.setpoint       = setpoint,
+			.set_voltage    = control_signal,
+			.w_rad_s        = Controller::read_speed_rad_s(),
+			.I_amp          = Controller::read_current(),
+			.estimated_load = Controller::estimated_load_nm()
+		};
+		xQueueSend(
+			task::telemetry::TelemetryTask::get_instance().data_queue(),
+			&package,
+			0
+		);
+		n_ticks = 0;
+	}
+	n_ticks++;
 }
 
 void idle_loop   () {

@@ -1,11 +1,18 @@
+#include <cmath>
+
 #include "encoder.hpp"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_attr.h"
 
+#include "dc_plant.hpp"
+
 static const char *TAG = "encoder";
 
 constexpr uint64_t IDLE_RESET_TIME_ms = 100000L;
+constexpr float    M_TAU              = 2.0f*M_PI;
+constexpr int64_t M_TAU_i = DCPlant::DCMotorObserver_64::to_repr_ctxpr(M_TAU);
+constexpr int64_t US_2_S  = DCPlant::DCMotorObserver_64::to_repr_ctxpr(1e6f);
 
 // ISR global en IRAM
 static void IRAM_ATTR encoder_isr_handler(void *arg) {
@@ -83,6 +90,38 @@ float Encoder::getRpm() const {
 
     float rpm = dir * (60.0f * 1e6f) / (interval * _pulses_per_rev);
     return rpm;
+}
+float Encoder::getW_rads() const {
+    uint64_t now_us     = esp_timer_get_time();
+    uint64_t interval   = _pulse_interval_us;
+    uint64_t last_pulse = _last_pulse_time_us;
+    int      dir        = _direction;
+
+    if ((now_us - last_pulse) > IDLE_RESET_TIME_ms) {
+        return 0.0f;
+    }
+    if ( 0 == interval ) {
+        return 0.0f;
+    }
+
+    float rpm = dir * (M_TAU * 1e6f) / (interval * _pulses_per_rev);
+    return rpm;
+}
+int64_t Encoder::getW_rads_i() const {
+    uint64_t now_us     = esp_timer_get_time();
+    uint64_t interval   = _pulse_interval_us;
+    uint64_t last_pulse = _last_pulse_time_us;
+    int      dir        = _direction;
+
+    if ((now_us - last_pulse) > IDLE_RESET_TIME_ms) {
+        return 0.0f;
+    }
+    if ( 0 == interval ) {
+        return 0.0f;
+    }
+
+    int64_t w_rads = M_TAU_i*US_2_S /(interval * _pulses_per_rev);
+    return (dir>0)? w_rads : -w_rads;
 }
 
 void Encoder::reset() {
