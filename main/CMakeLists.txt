@@ -3,4 +3,18 @@ idf_component_register(
 		"main.cpp"
 	INCLUDE_DIRS
 		"."
+	REQUIRES
+		"nvs_flash"
+		"esp_netif"
+		"esp_event"
+		"esp_wifi"
+		"driver"
+		"esp_driver_ledc"
+		"controller"
+		"time_series"
+		"libtask"
+		"controller_task"
+		"sampler_task"
+		"apply_task"
+		"telemetry_task"
 )

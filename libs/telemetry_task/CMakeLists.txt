@@ -7,4 +7,8 @@ idf_component_register (
 		"driver"
 		"libtask"
 		"esp_timer"
+		"log"
+		"esp_netif"
+		"esp_event"
+		"esp_websocket_client"
 	)

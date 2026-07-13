@@ -26,6 +26,10 @@ using namespace DCPlant;
 const char LOG_TAG[] = "sampler";
 
 constexpr TickType_t ENCODER_TICK_TIME_ms = 2000;
+constexpr float TWO_PI = 6.2831853071795864769f;
+constexpr gpio_num_t ENCODER_PIN_A = GPIO_NUM_4;
+constexpr gpio_num_t ENCODER_PIN_B = GPIO_NUM_5;
+constexpr uint16_t ENCODER_PPR = 1600;
 
 constexpr EventBits_t INIT_OK           = 0b1 << 11;
 constexpr EventBits_t STATE_MASK        = ~(INIT_OK | SamplerState_e::ERROR);
@@ -47,6 +51,7 @@ static EulerDCMotorModel mock_dc_motor(SAMPLE_PARAMS, MODEL_SIM_TIME_s);
 static DCMotorObserver   observer(SAMPLE_PARAMS, SAMPLE_OBS_PRMS, MODEL_SIM_TIME_s);
 static uint64_t          last_interpolation_us = 0L;
 static float             last_voltage          = 0.0f;
+static Encoder           motor_encoder(ENCODER_PIN_A, ENCODER_PIN_B, ENCODER_PPR);
 
 /* Runtime variables */
 
@@ -204,6 +209,7 @@ esp_err_t task::sampler::SamplerTask::stop() {
 task::sampler::SamplerTask::SamplerTask()
 :	StateTask()
 {
+	motor_encoder.init();
 	_task_state_event_group_h = xEventGroupCreateStatic(
 		&sampler_state_event_group
 	);
@@ -238,8 +244,8 @@ EventBits_t task::sampler::SamplerTask::get_state() {
 }
 
 float task::sampler::SamplerTask::current_w()  {
-	interpolate_simulation();
-	return mock_dc_motor.state().w_rad_s;
+	const float rpm = motor_encoder.getRpm();
+	return rpm * TWO_PI / 60.0f;
 }
 float task::sampler::SamplerTask::current_TL() {
 	interpolate_simulation();
@@ -254,7 +260,9 @@ float task::sampler::SamplerTask::current_Volt() {
 float task::sampler::SamplerTask::estimated_load() {
 	return observer.estimated_load();
 }
-// const task::sampler::SamplerTask::Encoder &get_encoder() const;
+const Encoder &task::sampler::SamplerTask::get_encoder() const {
+	return motor_encoder;
+}
 
 void task::sampler::SamplerTask::set_applied_voltage(float applied_voltage) {
 	interpolate_simulation();

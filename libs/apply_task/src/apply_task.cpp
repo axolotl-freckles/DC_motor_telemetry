@@ -22,16 +22,17 @@ const char LOG_TAG[] = "apply";
 
 #define LEDC_SPEED_MODE LEDC_LOW_SPEED_MODE
 
-static constexpr float POWER_VOLTAGE = 25.0f;
-
 static constexpr ledc_timer_t   PWM_TIMER        = LEDC_TIMER_0;
 static constexpr int            PWM_RESOLUTION   = 9;
 static constexpr uint32_t       PWM_MAX_VAL      = (1<<PWM_RESOLUTION) - 1;
 static constexpr uint32_t       PWM_FREQUENCY_Hz = 100000;
+static constexpr float          voltageBattery    = 25.0f;
+static constexpr float          DUTY_MIN          = 0.10f;
+static constexpr float          DUTY_MAX          = 0.90f;
 static constexpr int            HIGH_GPIO        = 18;
 static constexpr int            LOW_GPIO         = 21;
 static constexpr ledc_channel_t BUCK_CHANNEL     = (ledc_channel_t)1;
-static constexpr ledc_channel_t BOOST_CHANNEL    = (ledc_channel_t)2;
+static constexpr ledc_channel_t BOOST_CHANNEL      = (ledc_channel_t)2;
 
 static constexpr gpio_num_t BOOST_PIN = (gpio_num_t)LOW_GPIO;
 static constexpr gpio_num_t BUCK_PIN  = (gpio_num_t)HIGH_GPIO;
@@ -90,7 +91,7 @@ void apply_task_fn (void* raw_args) {
 			handle_state(state);
 		}
 
-		//vTaskDelay(1);
+		vTaskDelay(SAMPLE_TIME_ms);
 	}
 
 }
@@ -124,18 +125,29 @@ void apply_loop(StateStruct_t &state) {
 	EventBits_t curr_state = 0;
 	float       voltage    = 0.0f;
 	float       dutycycle  = 0.0f;
+	float       applied_voltage = 0.0f;
 	(void)xQueueReceive(voltage_qh, &voltage, portMAX_DELAY);
 	curr_state = xEventGroupGetBits(state_event_gh);
 	if (curr_state & ~ApplyState_e::APPLYING) {
 		return;
 	}
 
-	dutycycle = voltage / (voltage + POWER_VOLTAGE);
-	dutycycle = std::max(dutycycle, 0.1f);
-	dutycycle = std::min(dutycycle, 0.9f);
-	ledc_set_duty_and_update(LEDC_SPEED_MODE,  BUCK_CHANNEL, dutycycle*PWM_MAX_VAL , 0);
-	ledc_set_duty_and_update(LEDC_SPEED_MODE, BOOST_CHANNEL, dutycycle*PWM_MAX_VAL , 0);
-	task::sampler::SamplerTask::get_instance().set_applied_voltage( POWER_VOLTAGE*dutycycle/(1-dutycycle) );
+	if (voltage <= 0.0f) {
+		// Failsafe: never boost duty from negative/zero control effort.
+		dutycycle = 0.0f;
+		applied_voltage = 0.0f;
+	} else {
+		dutycycle = voltage / (voltage + voltageBattery);
+		dutycycle = std::max(dutycycle, DUTY_MIN);
+		dutycycle = std::min(dutycycle, DUTY_MAX);
+		applied_voltage = voltageBattery * dutycycle / (1.0f - dutycycle);
+	}
+
+	ledc_set_duty(LEDC_SPEED_MODE, BUCK_CHANNEL, dutycycle * PWM_MAX_VAL);
+	ledc_update_duty(LEDC_SPEED_MODE, BUCK_CHANNEL);
+	ledc_set_duty(LEDC_SPEED_MODE, BOOST_CHANNEL, dutycycle * PWM_MAX_VAL);
+	ledc_update_duty(LEDC_SPEED_MODE, BOOST_CHANNEL);
+	task::sampler::SamplerTask::get_instance().set_applied_voltage(applied_voltage);
 }
 
 /* ###################################################### TRANSITION HANDLING */
@@ -147,7 +159,6 @@ QueueHandle_t task::apply::ApplyTask::createQueue(UBaseType_t len) {
 }
 
 esp_err_t task::apply::ApplyTask::start() {
-	//return ESP_OK;
 	esp_err_t   can_start     = ESP_OK;
 	EventBits_t curr_state    = xEventGroupGetBits(_task_state_event_group_h);
 	bool        transition_ok = false;
@@ -166,7 +177,6 @@ esp_err_t task::apply::ApplyTask::start() {
 	return can_start;
 }
 esp_err_t task::apply::ApplyTask::stop() {
-	//return ESP_OK;
 	EventBits_t curr_state    = xEventGroupGetBits(_task_state_event_group_h);
 	if (curr_state & ApplyState_e::ERROR) {
 		ESP_LOGE(LOG_TAG, "Apply in error state!");
@@ -233,10 +243,11 @@ task::apply::ApplyTask::ApplyTask () : task::StateTask() {
 		.flags = {.output_invert = 0}
 	};
 	ledc_channel_config_t channel_buck_config = channel_boost_config;
+	channel_buck_config.gpio_num = BUCK_PIN;
+	channel_buck_config.channel  = BUCK_CHANNEL;
+	channel_buck_config.flags.output_invert = 0;
 	channel_boost_config.gpio_num = BOOST_PIN;
-	channel_boost_config.channel  = BUCK_CHANNEL;
-	channel_buck_config .gpio_num = BUCK_PIN;
-	channel_buck_config .channel  = BOOST_CHANNEL;
+	channel_boost_config.channel  = BOOST_CHANNEL;
 	channel_boost_config.flags.output_invert = 1;
 
 	error_code = ESP_ERROR_CHECK_WITHOUT_ABORT(
@@ -262,7 +273,7 @@ task::apply::ApplyTask::ApplyTask () : task::StateTask() {
 	xTaskCreate (
 		apply_task_fn,
 		"apply_task",
-		2048 + 1024,
+		4096,
 		nullptr,
 		3,
 		&_frtos_task_h
