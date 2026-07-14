@@ -12,7 +12,7 @@ static const char *TAG = "encoder";
 constexpr uint64_t IDLE_RESET_TIME_ms = 100000L;
 constexpr float    M_TAU              = 2.0f*M_PI;
 constexpr int64_t M_TAU_i = DCPlant::DCMotorObserver_64::to_repr_ctxpr(M_TAU);
-constexpr int64_t US_2_S  = DCPlant::DCMotorObserver_64::to_repr_ctxpr(1e6f);
+constexpr int64_t US_2_S  = (int64_t)1e6f;
 
 // ISR global en IRAM
 static void IRAM_ATTR encoder_isr_handler(void *arg) {

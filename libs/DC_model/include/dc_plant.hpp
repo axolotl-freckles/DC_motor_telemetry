@@ -122,7 +122,6 @@ public:
 
 	void reset();
 
-	const   dc_parameters parameters      () const;
 	float                 sample_time     () const;
 	const   dc_state      state           () const;
 	float                 estimated_load  () const;
@@ -133,30 +132,41 @@ public:
 		const DCMotorObserver::EstimationParams &es_params,
 		float                                    sample_time_s
 	);
-private:
-	static constexpr int64_t ONE_SH  = 1LL<<10;
-	static constexpr float   ONE_SHf = (float)ONE_SH;
 
-	/* dc_parameters    _parameters; */
-	const int64_t _res_ohm        = 0; /* Amature resistance          */
-	const int64_t _inductance     = 0; /* Inductance of amature       */
-	const int64_t _moment_kg_m2   = 0; /* Moment of inertia           */
-	const int64_t _viscous_u      = 0; /* Viscous friction coeficient */
-	const int64_t _Kt_Nm_A        = 0; /* Torque constant             */
-	const int64_t _Kb_V_rad_s     = 0; /* Back-emf constant           */
-	/* EstimationParams _es_params;  */
-	const int64_t _alfa_1         = 0;
-	const int64_t _alfa_2         = 0;
-	const int64_t _alfa_3         = 0;
-	const int64_t _k_1            = 0;
-	const int64_t _k_2            = 0;
-	const int64_t _k_3            = 0;
+	inline static int64_t mul_fixed(const int64_t a, const int64_t b) {
+		const int64_t e_a = a/ONE_SH;
+		const int64_t e_b = b/ONE_SH;
+		const int64_t f_a = a - e_a*ONE_SH;
+		const int64_t f_b = b - e_b*ONE_SH;
+
+		return e_a*e_b*ONE_SH + e_a*f_b + e_b*f_a + f_a*f_b/ONE_SH;
+	}
+private:
+	static constexpr int64_t ONE_SH  = (1LL<<33) - 1LL;
+	static constexpr float   ONE_SHf = (float)ONE_SH;
+	static constexpr int64_t FILTER_RC = (int64_t)(0.80f*ONE_SH);
 	/* ----------------------------- */
 	const int64_t _sample_time_s  = 0;
 
+	const int64_t _Tp_1 = 0;
+	const int64_t _Tp_2 = 0;
+
+	const int64_t _Wp_1 = 0;
+	const int64_t _Wp_2 = 0;
+	const int64_t _Wp_3 = 0;
+	const int64_t _Wp_4 = 0;
+	const int64_t _Wp_5 = 0;
+
+	const int64_t _Ip_1 = 0;
+	const int64_t _Ip_2 = 0;
+	const int64_t _Ip_3 = 0;
+	const int64_t _Ip_4 = 0;
+	const int64_t _Ip_5 = 0;
+
 	/* dc_state         _state;      */
-	int64_t _w_rad_s        = 0; /* Angular speed   */
-	int64_t _I_amp          = 0; /* Amature current */
+	int64_t _w_rad_s_filtered = 0;
+	int64_t _w_rad_s          = 0; /* Angular speed   */
+	int64_t _I_amp            = 0; /* Amature current */
 	/* ----------------------------- */
 	int64_t _estimated_load = 0;
 };

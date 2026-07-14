@@ -44,7 +44,7 @@ static StateSwitcher<SamplerState_e> *transition_handler = nullptr;
 
 /* Message interface variables */
 
-static Encoder encoder((gpio_num_t)4, (gpio_num_t)5, 1600);
+static Encoder encoder((gpio_num_t)4, (gpio_num_t)5, 400);
 static EulerDCMotorModel  mock_dc_motor(SAMPLE_PARAMS, MODEL_SIM_TIME_s);
 static DCMotorObserver_64 observer(SAMPLE_PARAMS, SAMPLE_OBS_PRMS, MODEL_SIM_TIME_s);
 static uint64_t           last_interpolation_us = 0L;
@@ -301,6 +301,7 @@ EventBits_t task::sampler::SamplerTask::get_state() {
 }
 
 float task::sampler::SamplerTask::current_w()  {
+	//return encoder.getW_rads();
 	return DCMotorObserver_64::from_repr(encoder.getW_rads_i());
 }
 float task::sampler::SamplerTask::current_TL() {

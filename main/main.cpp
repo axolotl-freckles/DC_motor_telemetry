@@ -23,7 +23,7 @@ extern "C" void app_main(void)
 	ControllerTask &controller_task = ControllerTask::get_instance();
 	SamplerTask    &sampler_task    = SamplerTask::get_instance();
 	ApplyTask      &apply_task      = ApplyTask::get_instance();
-	MonitorInput   &monitor_task    = MonitorInput::get_instance();
+	//MonitorInput   &monitor_task    = MonitorInput::get_instance();
 	ledc_fade_func_install(0);
 
 	QueueHandle_t setpoint_qh = xQueueCreate(1, sizeof(float));
@@ -41,12 +41,13 @@ extern "C" void app_main(void)
 	controller_task.set_params(controller_config);
 	sampler_task.set_params(sampler_config);
 	apply_task.set_params(apply_config);
-	monitor_task.set_setpoint_qh(setpoint_qh);
+	//monitor_task.set_setpoint_qh(setpoint_qh);
 
-	float setpoint_init_rad_s = 0.0f;
+	controller_task.start();
+	//monitor_task.start();
+	vTaskDelay(pdMS_TO_TICKS(1000));
+	float setpoint_init_rad_s = 20.0f;
 	xQueueOverwrite(setpoint_qh, &setpoint_init_rad_s);
-
-	monitor_task.start();
 
 	while (true) {
 		vTaskDelay(pdMS_TO_TICKS(portMAX_DELAY));
