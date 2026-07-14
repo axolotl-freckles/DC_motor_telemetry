@@ -164,7 +164,6 @@ private:
 	const int64_t _Ip_5 = 0;
 
 	/* dc_state         _state;      */
-	int64_t _w_rad_s_filtered = 0;
 	int64_t _w_rad_s          = 0; /* Angular speed   */
 	int64_t _I_amp            = 0; /* Amature current */
 	/* ----------------------------- */
@@ -182,9 +181,9 @@ const DCPlant::dc_parameters SAMPLE_PARAMS = {
 	.Kb_V_rad_s   = 0.436f
 };
 const DCPlant::DCMotorObserver::EstimationParams SAMPLE_OBS_PRMS = {
-	.alfa_1 = 0.00001f,
-	.alfa_2 = 0.00001f,
-	.alfa_3 = 1.00000000001f,
+	.alfa_1 = -0.00001f,
+	.alfa_2 = -0.00001f,
+	.alfa_3 = -1.00000000001f,
 	.k_1    = 0.000000001f,
 	.k_2    = 0.00000001f,
 	.k_3    = 0.100000001f,

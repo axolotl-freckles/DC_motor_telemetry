@@ -15,7 +15,15 @@
 using namespace DCPlant;
 
 template <typename _T>
-static int sign(const _T value) { return (value<0)? -1 : 1; }
+static int sign(const _T value) {
+	if (value > 0) {
+		return 1;
+	}
+	if (value < 0) {
+		return -1;
+	}
+	return 0;
+}
 
 DCPlant::DCMotorObserver::DCMotorObserver(
 	EulerDCMotorModel &other,
@@ -44,8 +52,8 @@ DCPlant::DCMotorObserver::EstimationResults DCPlant::DCMotorObserver::step (
 	const float y = _state.w_rad_s;
 	DCPlant::dc_state new_state;
 	DCPlant::dc_state error     = {
-		.w_rad_s = _state.w_rad_s - correct_state.w_rad_s,
-		.I_amp   = _state.I_amp   - correct_state.I_amp
+		.w_rad_s = correct_state.w_rad_s - _state.w_rad_s,
+		.I_amp   = correct_state.I_amp   - _state.I_amp
 	};
 
 	const float new_estimated_load = _estimated_load
@@ -99,8 +107,7 @@ DCPlant::DCMotorObserver_64::EstimationResults DCPlant::DCMotorObserver_64::step
 	const int64_t amature_volt_sh,
 	const int64_t w_rad_s_sh
 ) {
-	_w_rad_s_filtered = mul_fixed(w_rad_s_sh, FILTER_RC) + mul_fixed(ONE_SH - FILTER_RC, _w_rad_s_filtered);
-	const int64_t er_w = _w_rad_s - _w_rad_s_filtered;
+	const int64_t er_w = w_rad_s_sh - _w_rad_s;
 
 	const int64_t new_estimated_load =
 		  _estimated_load
@@ -119,7 +126,7 @@ DCPlant::DCMotorObserver_64::EstimationResults DCPlant::DCMotorObserver_64::step
 	;
 	const int64_t new_I_amp  =
 		_I_amp
-		+ mul_fixed(_Ip_1, _estimated_load)
+		+ mul_fixed(_Ip_1, _w_rad_s)
 		+ mul_fixed(_Ip_2, _I_amp)
 		+ mul_fixed(_Ip_3, amature_volt_sh)
 	
@@ -159,7 +166,7 @@ DCPlant::DCMotorObserver_64::DCMotorObserver_64(
 	_Tp_1(DCMotorObserver_64::to_repr( sample_time_s*es_params.alfa_3 )),
 	_Tp_2(DCMotorObserver_64::to_repr( sample_time_s*es_params.k_3    )),
 
-	_Wp_1(DCMotorObserver_64::to_repr( sample_time_s*parameters.viscous_u/parameters.moment_kg_m2 )),
+	_Wp_1(DCMotorObserver_64::to_repr(-sample_time_s*parameters.viscous_u/parameters.moment_kg_m2 )),
 	_Wp_2(DCMotorObserver_64::to_repr( sample_time_s*parameters.Kt_Nm_A/parameters.moment_kg_m2 )),
 	_Wp_3(DCMotorObserver_64::to_repr(-sample_time_s/parameters.moment_kg_m2 )),
 	_Wp_4(DCMotorObserver_64::to_repr( sample_time_s*es_params.alfa_1 )),

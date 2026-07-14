@@ -13,6 +13,7 @@
 
 #include <cstdlib>
 
+#include "freertos/FreeRTOS.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 
@@ -54,6 +55,7 @@ static esp_timer_handle_t sampler_timer_handle;
 static volatile int64_t last_voltage_sh        = 0;
 static volatile int64_t estimated_load_Nm_sh   = 0;
 static volatile int64_t estimated_current_A_sh = 0;
+static portMUX_TYPE sampler_shared_spinlock    = portMUX_INITIALIZER_UNLOCKED;
 
 /* Runtime variables */
 
@@ -87,13 +89,20 @@ static bool handle_transition(SamplerState_e from, SamplerState_e to);
 static void interpolate_simulation();
 
 void take_sample(void* args) {
+	int64_t applied_voltage_sh = 0;
+	portENTER_CRITICAL(&sampler_shared_spinlock);
+	applied_voltage_sh = last_voltage_sh;
+	portEXIT_CRITICAL(&sampler_shared_spinlock);
+
 	int64_t velocity = encoder.getW_rads_i();
 	DCMotorObserver_64::EstimationResults res = observer.step(
-		last_voltage_sh,
+		applied_voltage_sh,
 		velocity
 	);
+	portENTER_CRITICAL(&sampler_shared_spinlock);
 	estimated_load_Nm_sh   = res.load_Nm_sh;
 	estimated_current_A_sh = res.I_amp_sh;
+	portEXIT_CRITICAL(&sampler_shared_spinlock);
 }
 
 void sampler_task_fn(void *args) {
@@ -257,7 +266,7 @@ task::sampler::SamplerTask::SamplerTask()
 	esp_timer_create_args_t sampler_timer_cfg {
 		.callback              = take_sample,
 		.arg                   = (void*)nullptr,
-		.dispatch_method       = ESP_TIMER_ISR,
+		.dispatch_method       = ESP_TIMER_TASK,
 		.name                  = "SAMPLER",
 		.skip_unhandled_events = false
 	};
@@ -305,13 +314,25 @@ float task::sampler::SamplerTask::current_w()  {
 	return DCMotorObserver_64::from_repr(encoder.getW_rads_i());
 }
 float task::sampler::SamplerTask::current_TL() {
-	return DCMotorObserver_64::from_repr(estimated_load_Nm_sh);
+	int64_t load_sh = 0;
+	portENTER_CRITICAL(&sampler_shared_spinlock);
+	load_sh = estimated_load_Nm_sh;
+	portEXIT_CRITICAL(&sampler_shared_spinlock);
+	return DCMotorObserver_64::from_repr(load_sh);
 }
 float task::sampler::SamplerTask::current_TI() {
-	return DCMotorObserver_64::from_repr(estimated_current_A_sh);
+	int64_t curr_sh = 0;
+	portENTER_CRITICAL(&sampler_shared_spinlock);
+	curr_sh = estimated_current_A_sh;
+	portEXIT_CRITICAL(&sampler_shared_spinlock);
+	return DCMotorObserver_64::from_repr(curr_sh);
 }
 float task::sampler::SamplerTask::current_Volt() {
-	return DCMotorObserver_64::from_repr(last_voltage_sh);
+	int64_t volt_sh = 0;
+	portENTER_CRITICAL(&sampler_shared_spinlock);
+	volt_sh = last_voltage_sh;
+	portEXIT_CRITICAL(&sampler_shared_spinlock);
+	return DCMotorObserver_64::from_repr(volt_sh);
 }
 
 const Encoder &task::sampler::SamplerTask::get_encoder() const {
@@ -319,7 +340,9 @@ const Encoder &task::sampler::SamplerTask::get_encoder() const {
 }
 
 void task::sampler::SamplerTask::set_applied_voltage(float applied_voltage) {
+	portENTER_CRITICAL(&sampler_shared_spinlock);
 	last_voltage_sh = DCMotorObserver_64::to_repr(applied_voltage);
+	portEXIT_CRITICAL(&sampler_shared_spinlock);
 }
 
 task::sampler::SamplerTask::~SamplerTask() {}
