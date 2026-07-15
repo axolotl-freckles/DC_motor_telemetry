@@ -138,6 +138,13 @@ static esp_err_t wifi_init_sta(void) {
 	return ESP_FAIL;
 }
 
+float RAD_2_RPM (const float val) {
+	return val*60.0f/(2.0f*M_PI);
+}
+float RPM_2_RAD (const float val) {
+	return val*2.0f*M_PI / 60.0f;
+}
+
 extern "C" void app_main(void)
 {
 	esp_err_t nvs_ret = nvs_flash_init();
@@ -176,29 +183,26 @@ extern "C" void app_main(void)
 	apply_task.set_params(apply_config);
 	QueueHandle_t ws_setpoint_qh = telemetry_task.ws_setpoint_queue();
 	//monitor_task.set_setpoint_qh(setpoint_qh);
+	if (controller_task.start() != ESP_OK) {
+		ESP_LOGE(TAG, "Unable to start controller task");
+	}
 
-	controller_task.start();
-	//monitor_task.start();
-	vTaskDelay(pdMS_TO_TICKS(1000));
-	float duty_percent = 20.0f;
-	float duty = duty_percent * 0.01f;
-	float control_voltage = VOLTAGE_BATTERY * duty / (1.0f - duty);
-	xQueueOverwrite(setpoint_qh, &control_voltage);
+	float setpoint_init_rad_s = RPM_2_RAD(100.0f);
+	xQueueOverwrite(setpoint_qh, &setpoint_init_rad_s);
+	ESP_LOGI(TAG, "WS RPM setpoint mode enabled (range: 100..700 rpm)");
 
 	while (true) {
-		float requested_duty_percent = 0.0f;
-		if ((ws_setpoint_qh != nullptr) && (pdTRUE == xQueueReceive(ws_setpoint_qh, &requested_duty_percent, 0))) {
-			const float clamped_percent = clampf(requested_duty_percent, DUTY_MIN_PERCENT, DUTY_MAX_PERCENT);
-			duty_percent = clamped_percent;
-			duty = duty_percent * 0.01f;
-			control_voltage = VOLTAGE_BATTERY * duty / (1.0f - duty);
-			xQueueOverwrite(setpoint_qh, &control_voltage);
+		float requested_rpm = 0.0f;
+		if ((ws_setpoint_qh != nullptr) && (pdTRUE == xQueueReceive(ws_setpoint_qh, &requested_rpm, 0))) {
+			const float clamped_rpm = clampf(requested_rpm, 100.0f, 700.0f);
+			const float setpoint_rad_s = RPM_2_RAD(clamped_rpm);
+			xQueueOverwrite(setpoint_qh, &setpoint_rad_s);
 
-			if (fabsf(clamped_percent - requested_duty_percent) > 1e-3f) {
-				ESP_LOGW(TAG, "WS setpoint %.2f%% out of range, clamped to %.2f%%", requested_duty_percent, clamped_percent);
+			if (fabsf(clamped_rpm - requested_rpm) > 1e-3f) {
+				ESP_LOGW(TAG, "WS setpoint %.2f rpm out of range, clamped to %.2f rpm", requested_rpm, clamped_rpm);
 			}
 			else {
-				ESP_LOGI(TAG, "WS duty setpoint applied: %.2f%%", duty_percent);
+				ESP_LOGI(TAG, "WS setpoint applied: %.2f rpm (%.3f rad/s)", clamped_rpm, setpoint_rad_s);
 			}
 		}
 

@@ -33,7 +33,7 @@
 #define CONTROLLER_TYPE_OPEN  1
 #define CONTROLLER_TYPE_IDEAL 2
 
-#define CONTROLLER_TYPE CONTROLLER_TYPE_OPEN
+#define CONTROLLER_TYPE CONTROLLER_TYPE_IDEAL
 
 using namespace task;
 using namespace task::controller;
@@ -45,7 +45,7 @@ constexpr float      WINDUP_PERIOD_s         = 0.5f;
 constexpr float      WINDOWN_PERIOD_s        = 0.5f;
 constexpr int64_t    WATCHDOG_THRESH_us      = 1000;
 constexpr int64_t    STOP_TIMEOUT_us         = TELEMETRY_TICK_TIME_ms*1000LL;
-constexpr float      DEFAULT_SETPOINT        =  0.1f;//30.0f;
+constexpr float      DEFAULT_SETPOINT        =  0.0f;//30.0f;
 constexpr float      SP_DELTA_THRESHOLD      =  0.1f;
 
 constexpr EventBits_t INIT_OK           = 0b1 << 11;
@@ -152,10 +152,11 @@ static void control_task_fn(void *args) {
 #endif
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_IDEAL
 	dc_controller = new (controller_mem_space) IdealControlLaw(
-		3.1758f,
-		0.4152f,
-		0.0975f,
-		0.4560f
+		3.1758f, /* K1 */
+		0.4152f, /* K2 */
+		0.0975f, /* Ki */
+		0.4560f 
+
 	);
 #endif
 

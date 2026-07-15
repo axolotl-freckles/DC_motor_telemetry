@@ -26,7 +26,11 @@ constexpr uint64_t   SEND_WATCHDOG_TIMEOUT_us = 10000L;
 constexpr TickType_t TELEMETRY_TICK_TIME_ms   = 50;
 static constexpr const char *TAG = "telemetry_task";
 static constexpr const char *WS_URI = "ws://192.168.137.1:8080";
-static constexpr float DUTY_SETPOINT_DEFAULT_PERCENT = 20.0f;
+static constexpr float RPM_SETPOINT_DEFAULT = 100.0f;
+
+static inline float rad_s_to_rpm(float value) {
+	return value * 60.0f / (2.0f * M_PI);
+}
 
 constexpr EventBits_t INIT_OK = 0b1 << 11;
 
@@ -37,6 +41,8 @@ struct TaskArgs_t {
 
 static esp_websocket_client_handle_t s_ws_client = nullptr;
 static QueueHandle_t s_ws_setpoint_queue_h = nullptr;
+static char s_ws_rx_buffer[64] = {0};
+static size_t s_ws_rx_expected_len = 0;
 
 static void websocket_event_handler(
 	void *handler_args,
@@ -57,36 +63,49 @@ static void websocket_event_handler(
 	else if (event_id == WEBSOCKET_EVENT_DATA) {
 		esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
 		if ((s_ws_setpoint_queue_h != nullptr) && (data != nullptr) && (data->data_ptr != nullptr) && (data->data_len > 0)) {
-			char rx_buffer[32] = {0};
-			int copy_len = data->data_len;
-			if (copy_len >= static_cast<int>(sizeof(rx_buffer))) {
-				copy_len = static_cast<int>(sizeof(rx_buffer) - 1);
+			if (data->payload_offset == 0) {
+				s_ws_rx_expected_len = data->payload_len;
+				memset(s_ws_rx_buffer, 0, sizeof(s_ws_rx_buffer));
 			}
 
-			memcpy(rx_buffer, data->data_ptr, copy_len);
-			rx_buffer[copy_len] = '\0';
+			const size_t copy_offset = static_cast<size_t>(data->payload_offset);
+			const size_t copy_len = static_cast<size_t>(data->data_len);
+			if (copy_offset < sizeof(s_ws_rx_buffer) - 1U) {
+				const size_t available = (sizeof(s_ws_rx_buffer) - 1U) - copy_offset;
+				const size_t safe_len = (copy_len < available) ? copy_len : available;
+				memcpy(&s_ws_rx_buffer[copy_offset], data->data_ptr, safe_len);
+			}
 
-			for (int i = 0; i < copy_len; ++i) {
-				if (rx_buffer[i] == ',') {
-					rx_buffer[i] = '.';
+			const size_t received_len = copy_offset + copy_len;
+			if (received_len < s_ws_rx_expected_len) {
+				return;
+			}
+
+			s_ws_rx_buffer[sizeof(s_ws_rx_buffer) - 1U] = '\0';
+			for (size_t i = 0; i < sizeof(s_ws_rx_buffer) - 1U; ++i) {
+				if (s_ws_rx_buffer[i] == ',') {
+					s_ws_rx_buffer[i] = '.';
 				}
 			}
 
-			char *start = rx_buffer;
+			char *start = s_ws_rx_buffer;
 			while ((*start != '\0') && std::isspace(static_cast<unsigned char>(*start))) {
 				start++;
 			}
 
 			char *endptr = nullptr;
-			const float duty_percent = strtof(start, &endptr);
+			const float rpm_setpoint = strtof(start, &endptr);
 
 			while ((endptr != nullptr) && (*endptr != '\0') && std::isspace(static_cast<unsigned char>(*endptr))) {
 				endptr++;
 			}
 
 			if ((start != endptr) && (endptr != nullptr) && (*endptr == '\0')) {
-				(void)xQueueOverwrite(s_ws_setpoint_queue_h, &duty_percent);
-				ESP_LOGI(TAG, "WS duty setpoint received: %.2f %%", duty_percent);
+				(void)xQueueOverwrite(s_ws_setpoint_queue_h, &rpm_setpoint);
+				ESP_LOGI(TAG, "WS RPM setpoint received: %.2f rpm", rpm_setpoint);
+			}
+			else {
+				ESP_LOGW(TAG, "Invalid WS RPM payload: '%s'", s_ws_rx_buffer);
 			}
 		}
 	}
@@ -149,7 +168,7 @@ void telemetry_task_fn(void *args) {
 			",%10.3e"
 			",%10.3e\n",
 			received_data.timestamp,
-			received_data.setpoint,
+			rad_s_to_rpm(received_data.setpoint),
 			received_data.set_voltage,
 			received_data.w_rad_s * 60.0f/(2.0f*M_PI),
 			received_data.I_amp,
@@ -163,7 +182,7 @@ void telemetry_task_fn(void *args) {
 				sizeof(tx),
 				"%10.3e,%10.3e,%10.3e,%10.3e,%10.3e,%10.3e\n",
 				received_data.timestamp,
-				received_data.setpoint,
+				rad_s_to_rpm(received_data.setpoint),
 				received_data.set_voltage,
 				received_data.w_rad_s * 60.0f/(2.0f*M_PI),
 				received_data.I_amp,
@@ -198,8 +217,8 @@ task::telemetry::TelemetryTask::TelemetryTask() {
 	_ws_setpoint_queue_h = xQueueCreate(1, sizeof(float));
 	s_ws_setpoint_queue_h = _ws_setpoint_queue_h;
 	if (_ws_setpoint_queue_h != nullptr) {
-		float default_percent = DUTY_SETPOINT_DEFAULT_PERCENT;
-		(void)xQueueOverwrite(_ws_setpoint_queue_h, &default_percent);
+		float default_rpm = RPM_SETPOINT_DEFAULT;
+		(void)xQueueOverwrite(_ws_setpoint_queue_h, &default_rpm);
 	}
 	websocket_app_start();
 

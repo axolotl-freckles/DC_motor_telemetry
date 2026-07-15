@@ -29,13 +29,17 @@ static constexpr float POWER_VOLTAGE = 25.0f;
 static constexpr ledc_timer_t   PWM_TIMER        = LEDC_TIMER_0;
 static constexpr int            PWM_RESOLUTION   = 9;
 static constexpr uint32_t       PWM_MAX_VAL      = (1<<PWM_RESOLUTION) - 1;
-static constexpr uint32_t       PWM_CLIP_MIN     = 0.05f*PWM_MAX_VAL;
+static constexpr uint32_t       PWM_CLIP_MIN     = 0;
 static constexpr uint32_t       PWM_CLIP_MAX     = 0.95f*PWM_MAX_VAL;
 static constexpr uint32_t       PWM_FREQUENCY_Hz = 100000;
 static constexpr int            HIGH_GPIO        = 18;
 static constexpr int            LOW_GPIO         = 21;
 static constexpr ledc_channel_t BUCK_CHANNEL     = (ledc_channel_t)1;
 static constexpr ledc_channel_t BOOST_CHANNEL    = (ledc_channel_t)2;
+
+static constexpr EventBits_t APPLY_STATE_MASK = ApplyState_e::IDLE
+	                                          | ApplyState_e::APPLYING
+	                                          | ApplyState_e::ERROR;
 
 static constexpr gpio_num_t BOOST_PIN = (gpio_num_t)LOW_GPIO;
 static constexpr gpio_num_t BUCK_PIN  = (gpio_num_t)HIGH_GPIO;
@@ -80,7 +84,7 @@ void apply_task_fn (void* raw_args) {
 	xEventGroupSetBits(state_event_gh, ApplyState_e::IDLE);
 
 	while (true) {
-		current_state  = xEventGroupGetBits(state_event_gh);
+		current_state  = xEventGroupGetBits(state_event_gh) & APPLY_STATE_MASK;
 		state_delta    = current_state ^ previous_state;
 		// (void)xEventGroupClearBits(controller_sync_event_h, CLEAR_BITS_MASK);
 		// (void)xEventGroupSetBits  (controller_sync_event_h, current_state);
@@ -99,7 +103,7 @@ void apply_task_fn (void* raw_args) {
 }
 
 void handle_state(StateStruct_t &state) {
-	switch (state.current_state) {
+	switch (state.current_state & (ApplyState_e::IDLE | ApplyState_e::APPLYING)) {
 		case ApplyState_e::IDLE:
 			idle_loop (state);
 			break;
@@ -130,16 +134,17 @@ void apply_loop(StateStruct_t &state) {
 	uint32_t    dutycycle  = 0;
 	(void)xQueueReceive(voltage_qh, &voltage, portMAX_DELAY);
 	curr_state = xEventGroupGetBits(state_event_gh);
-	if (curr_state & ~ApplyState_e::APPLYING) {
+	if (!(curr_state & ApplyState_e::APPLYING) || (curr_state & ApplyState_e::ERROR)) {
 		return;
 	}
 
+	voltage  = std::clamp(voltage, 0.0f, 90.0f);
 	duty_100 = voltage / (voltage + POWER_VOLTAGE);
-	duty_100 = std::clamp(duty_100, 0.05f, 0.95f);
+	duty_100 = std::clamp(duty_100, 0.0f, 0.95f);
 	dutycycle = duty_100*PWM_MAX_VAL;
 	dutycycle = std::clamp(dutycycle, PWM_CLIP_MIN, PWM_CLIP_MAX);
-	ledc_set_duty_and_update(LEDC_SPEED_MODE,  BUCK_CHANNEL, duty_100*PWM_MAX_VAL , 0);
-	ledc_set_duty_and_update(LEDC_SPEED_MODE, BOOST_CHANNEL, duty_100*PWM_MAX_VAL , 0);
+	ledc_set_duty_and_update(LEDC_SPEED_MODE,  BUCK_CHANNEL, dutycycle, 0);
+	ledc_set_duty_and_update(LEDC_SPEED_MODE, BOOST_CHANNEL, dutycycle, 0);
 
 	duty_100 = ((float)dutycycle)/PWM_MAX_VAL;
 	task::sampler::SamplerTask::get_instance().set_applied_voltage( POWER_VOLTAGE*duty_100/(1-duty_100) );
@@ -166,7 +171,7 @@ esp_err_t task::apply::ApplyTask::start() {
 		can_start = ESP_ERR_INVALID_STATE;
 	}
 	if (ESP_OK == can_start) {
-		xEventGroupClearBits(_task_state_event_group_h, curr_state);
+		xEventGroupClearBits(_task_state_event_group_h, APPLY_STATE_MASK);
 		xEventGroupSetBits  (_task_state_event_group_h, ApplyState_e::APPLYING);
 	}
 	return can_start;
@@ -177,7 +182,7 @@ esp_err_t task::apply::ApplyTask::stop() {
 		ESP_LOGE(LOG_TAG, "Apply in error state!");
 		return ESP_ERR_INVALID_STATE;
 	}
-	xEventGroupClearBits(_task_state_event_group_h, curr_state);
+	xEventGroupClearBits(_task_state_event_group_h, APPLY_STATE_MASK);
 	xEventGroupSetBits  (_task_state_event_group_h, ApplyState_e::IDLE);
 	return ESP_OK;
 }
@@ -233,7 +238,7 @@ task::apply::ApplyTask::ApplyTask () : task::StateTask() {
 		.channel    = (ledc_channel_t)0,
 		.intr_type  = LEDC_INTR_DISABLE,
 		.timer_sel  = PWM_TIMER,
-		.duty       = 0x0F,
+		.duty       = 0,
 		.hpoint     = 0,
 		.flags = {.output_invert = 0}
 	};
