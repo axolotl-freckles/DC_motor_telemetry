@@ -164,6 +164,7 @@ private:
 	const int64_t _Ip_5 = 0;
 
 	/* dc_state         _state;      */
+	int64_t _w_rad_s_filtered = 0;
 	int64_t _w_rad_s          = 0; /* Angular speed   */
 	int64_t _I_amp            = 0; /* Amature current */
 	/* ----------------------------- */

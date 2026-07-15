@@ -55,7 +55,13 @@ static esp_timer_handle_t sampler_timer_handle;
 static volatile int64_t last_voltage_sh        = 0;
 static volatile int64_t estimated_load_Nm_sh   = 0;
 static volatile int64_t estimated_current_A_sh = 0;
+static volatile int64_t load_bias_sh           = 0;
+static volatile bool    bias_calibrated        = false;
+static int64_t          load_acc_sh            = 0;
+static uint32_t         bias_sample_count      = 0;
 static portMUX_TYPE sampler_shared_spinlock    = portMUX_INITIALIZER_UNLOCKED;
+
+constexpr uint32_t BIAS_CALIB_SAMPLES = 600; // 0.6s at 1 kHz timer
 
 /* Runtime variables */
 
@@ -99,9 +105,27 @@ void take_sample(void* args) {
 		applied_voltage_sh,
 		velocity
 	);
+
+	int64_t load_out_sh = res.load_Nm_sh;
+	int64_t curr_out_sh = res.I_amp_sh;
+
 	portENTER_CRITICAL(&sampler_shared_spinlock);
-	estimated_load_Nm_sh   = res.load_Nm_sh;
-	estimated_current_A_sh = res.I_amp_sh;
+	if (!bias_calibrated) {
+		load_acc_sh += res.load_Nm_sh;
+		bias_sample_count++;
+
+		if (bias_sample_count >= BIAS_CALIB_SAMPLES) {
+			load_bias_sh = load_acc_sh / (int64_t)bias_sample_count;
+			bias_calibrated = true;
+		}
+	}
+
+	if (bias_calibrated) {
+		load_out_sh -= load_bias_sh;
+	}
+
+	estimated_load_Nm_sh   = load_out_sh;
+	estimated_current_A_sh = curr_out_sh;
 	portEXIT_CRITICAL(&sampler_shared_spinlock);
 }
 
@@ -203,6 +227,13 @@ bool handle_transition(SamplerState_e from, SamplerState_e to) {
 		     SamplerState_e::IDLE     == from
 		  && SamplerState_e::SAMPLING ==   to
 		) {
+		portENTER_CRITICAL(&sampler_shared_spinlock);
+		load_bias_sh = 0;
+		bias_calibrated = false;
+		load_acc_sh = 0;
+		bias_sample_count = 0;
+		portEXIT_CRITICAL(&sampler_shared_spinlock);
+
 		observer.reset();
 		error_code = ESP_ERROR_CHECK_WITHOUT_ABORT( esp_timer_start_periodic(
 			sampler_timer_handle, MODEL_SIM_TIME_us
