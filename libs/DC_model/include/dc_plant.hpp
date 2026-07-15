@@ -182,10 +182,10 @@ const DCPlant::dc_parameters SAMPLE_PARAMS = {
 	.Kb_V_rad_s   = 0.436f
 };
 const DCPlant::DCMotorObserver::EstimationParams SAMPLE_OBS_PRMS = {
-	.alfa_1 = 0.00001f,
-	.alfa_2 = 0.00001f,
-	.alfa_3 = 1.00000000001f,
-	.k_1    = 0.000000001f,
-	.k_2    = 0.00000001f,
-	.k_3    = 0.100000001f,
+	.alfa_1 = -0.00001f,
+	.alfa_2 = -0.00001f,
+	.alfa_3 = -1.00000000001f,
+	.k_1    =  0.000000001f,
+	.k_2    =  0.00000001f,
+	.k_3    =  0.100000001f,
 };

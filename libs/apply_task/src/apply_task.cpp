@@ -134,6 +134,7 @@ void apply_loop(StateStruct_t &state) {
 		return;
 	}
 
+	voltage  = std::clamp(voltage, 0.0f, 90.0f);
 	duty_100 = voltage / (voltage + POWER_VOLTAGE);
 	duty_100 = std::clamp(duty_100, 0.05f, 0.95f);
 	dutycycle = duty_100*PWM_MAX_VAL;
