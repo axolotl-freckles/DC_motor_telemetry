@@ -142,7 +142,7 @@ public:
 		return e_a*e_b*ONE_SH + e_a*f_b + e_b*f_a + f_a*f_b/ONE_SH;
 	}
 private:
-	static constexpr int64_t ONE_SH  = (1LL<<33) - 1LL;
+	static constexpr int64_t ONE_SH  = (1LL<<30) - 1LL;
 	static constexpr float   ONE_SHf = (float)ONE_SH;
 	static constexpr int64_t FILTER_RC = (int64_t)(0.80f*ONE_SH);
 	/* ----------------------------- */

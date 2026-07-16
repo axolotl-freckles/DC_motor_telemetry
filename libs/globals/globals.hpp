@@ -13,7 +13,7 @@
 #include <cstdint>
 
 constexpr uint32_t SAMPLE_TIME_ms    = 10;
-constexpr uint64_t MODEL_SIM_TIME_us = 1000;
-constexpr uint32_t MODEL_SIM_TIME_ms = MODEL_SIM_TIME_us/1000U;
-constexpr float    SAMPLE_TIME_s     = SAMPLE_TIME_ms*1e-3;
-constexpr float    MODEL_SIM_TIME_s  = MODEL_SIM_TIME_ms*1e-3f;
+constexpr uint64_t MODEL_SIM_TIME_us = 200;
+constexpr uint32_t MODEL_SIM_TIME_ms = MODEL_SIM_TIME_us/1000.0f;
+constexpr float    SAMPLE_TIME_s     = SAMPLE_TIME_ms*1e-3f;
+constexpr float    MODEL_SIM_TIME_s  = MODEL_SIM_TIME_us*1e-6f;
