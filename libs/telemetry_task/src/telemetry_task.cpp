@@ -11,6 +11,7 @@
 #include "telemetry_task.hpp"
 
 #include <stdio.h>
+#include <cmath>
 
 #include "esp_timer.h"
 
@@ -56,15 +57,15 @@ void telemetry_task_fn(void *args) {
 			 "%10.3e"
 			",%10.3e"
 			",%10.3e"
-			// ",%10.3e"
-			// ",%10.3e"
+			",%10.3e"
+			",%10.3e"
 			",%10.3e\n",
 			received_data.timestamp,
 			received_data.setpoint,
 			received_data.set_voltage,
-			received_data.w_rad_s//,
-			// received_data.I_amp,
-			// received_data.estimated_load
+			received_data.w_rad_s * 60.0f/(2.0f*M_PI),
+			received_data.I_amp,
+			received_data.estimated_load
 		);
 
 		//(void)xTaskDelayUntil(
@@ -91,7 +92,7 @@ task::telemetry::TelemetryTask::TelemetryTask() {
 	xTaskCreate(
 		telemetry_task_fn,
 		"telemetry_task",
-		1024,
+		2048 + 512,
 		&args,
 		3,
 		&_frtos_task_h

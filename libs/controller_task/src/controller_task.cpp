@@ -33,7 +33,7 @@
 #define CONTROLLER_TYPE_OPEN  1
 #define CONTROLLER_TYPE_IDEAL 2
 
-#define CONTROLLER_TYPE CONTROLLER_TYPE_PID
+#define CONTROLLER_TYPE CONTROLLER_TYPE_IDEAL
 
 using namespace task;
 using namespace task::controller;
@@ -45,7 +45,7 @@ constexpr float      WINDUP_PERIOD_s         = 0.5f;
 constexpr float      WINDOWN_PERIOD_s        = 0.5f;
 constexpr int64_t    WATCHDOG_THRESH_us      = 1000;
 constexpr int64_t    STOP_TIMEOUT_us         = TELEMETRY_TICK_TIME_ms*1000LL;
-constexpr float      DEFAULT_SETPOINT        =  0.1f;//30.0f;
+constexpr float      DEFAULT_SETPOINT        =  0.0f;//30.0f;
 constexpr float      SP_DELTA_THRESHOLD      =  0.1f;
 
 constexpr EventBits_t INIT_OK           = 0b1 << 11;
@@ -152,10 +152,10 @@ static void control_task_fn(void *args) {
 #endif
 #if CONTROLLER_TYPE == CONTROLLER_TYPE_IDEAL
 	dc_controller = new (controller_mem_space) IdealControlLaw(
-		3.1758f,
-		0.4152f,
-		0.0975f,
-		0.4560f
+		3.1758f, /* K1 */
+		0.4152f, /* K2 */
+		0.0975f, /* Ki */
+		0.4560f  /* Nu */
 	);
 #endif
 
@@ -228,13 +228,32 @@ void handle_error() {
 }
 
 inline void control_tick() {
-	float control_signal       = 0.0f;
+	static uint8_t  n_ticks        = 1;
+	float           control_signal = 0.0f;
 
 	(void)dc_controller->loop(setpoint);
 	control_signal = dc_controller->get_control_point().voltage;
 	ESP_LOGV(LOG_TAG, "Control point is: %.3e", control_signal);
 	ESP_LOGV(LOG_TAG, "Setpoint is     : %.3e", setpoint);
 	xQueueOverwrite(csignal_qh, &control_signal);
+
+	if (n_ticks >= 10) {
+		task::telemetry::telemetry_data_t package = {
+			.timestamp      = esp_timer_get_time()*1e-6f,
+			.setpoint       = setpoint,
+			.set_voltage    = control_signal,
+			.w_rad_s        = Controller::read_speed_rad_s(),
+			.I_amp          = Controller::read_current(),
+			.estimated_load = Controller::estimated_load_nm()
+		};
+		xQueueSend(
+			task::telemetry::TelemetryTask::get_instance().data_queue(),
+			&package,
+			0
+		);
+		n_ticks = 0;
+	}
+	n_ticks++;
 }
 
 void idle_loop   () {
@@ -481,7 +500,7 @@ task::controller::ControllerTask::ControllerTask()
 	xTaskCreate(
 		control_task_fn,
 		"controller_task",
-		2048+512,
+		2048+512+256,
 		nullptr,
 		2,
 		&_frtos_task_h

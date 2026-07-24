@@ -42,7 +42,7 @@ float Controller::read_speed_rad_s(void) {
 	return task::sampler::SamplerTask::get_instance().current_w();
 }
 float Controller::estimated_load_nm(void) {
-	return task::sampler::SamplerTask::get_instance().estimated_load();
+	return task::sampler::SamplerTask::get_instance().current_TL();
 }
 
 float Controller::get_sample_time_s(void) {

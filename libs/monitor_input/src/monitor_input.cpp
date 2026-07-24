@@ -80,7 +80,8 @@ static void monitor_input_task_fn(void *args) {
 			active_setpoint_rpm = clamped_setpoint;
 			has_active_setpoint = true;
 
-			const float active_setpoint_rad_s = active_setpoint_rpm * TWO_PI / 60.0f;
+			//const float active_setpoint_rad_s = active_setpoint_rpm * TWO_PI / 60.0f;
+			const float active_setpoint_rad_s = active_setpoint_rpm;
 			xQueueOverwrite(setpoint_qh, &active_setpoint_rad_s);
 
 			if (!controller_started) {

@@ -15,7 +15,9 @@ public:
     void init();
     void reset();
 
-    float    getRpm() const;
+    float    getRpm      () const;
+    float    getW_rads   () const;
+    int64_t  getW_rads_i () const;
     int32_t  getDirection() const;
     uint64_t getLastPulseTime() const;
 
