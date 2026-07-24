@@ -20,12 +20,17 @@
 #include "esp_websocket_client.h"
 #include "esp_log.h"
 
+#include "sdkconfig.h"
+
+#define SRVR_IP   CONFIG_TELEMETRY_SERVER_IP
+#define SRVR_PORT CONFIG_TELEMETRY_SERVER_PORT
+
 using namespace task::telemetry;
 
 constexpr uint64_t   SEND_WATCHDOG_TIMEOUT_us = 10000L;
 constexpr TickType_t TELEMETRY_TICK_TIME_ms   = 50;
 static constexpr const char *TAG = "telemetry_task";
-static constexpr const char *WS_URI = "ws://192.168.137.1:8080";
+static constexpr const char *WS_URI = "ws://" SRVR_IP ":" SRVR_PORT;
 static constexpr float RPM_SETPOINT_DEFAULT = 100.0f;
 
 static inline float rad_s_to_rpm(float value) {
