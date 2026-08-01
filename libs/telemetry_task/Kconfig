@@ -1,0 +1,22 @@
+menu "Telemetry"
+	config TELEMETRY_WIFI_SSID
+		string "Telemetry SSID"
+		help
+			The SSID of the network used for sending telemetry.
+	config TELEMETRY_WIFI_PASSWORD
+		string "Telemetry password"
+		help
+			Password to connect to the network.
+	config TELEMETRY_SERVER_IP
+		string "Telemetry server IP"
+		default "127.0.0.1"
+		help
+			IP address of the telemetry server.
+			This is where the telemetry is going to be sent to.
+	config TELEMETRY_SERVER_PORT
+		string "Telemetry server port"
+		default "8080"
+		help
+			The port where the telemetry server is going to be listening or
+			sending the setpoint from.
+endmenu
