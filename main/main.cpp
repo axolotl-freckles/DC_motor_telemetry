@@ -20,6 +20,8 @@
 #include "sampler_task.hpp"
 #include "telemetry_task.hpp"
 
+#include "sdkconfig.h"
+
 using task::controller::ControllerTask;
 using task::controller::ControllerState_e;
 using task::sampler::SamplerTask;
@@ -38,8 +40,8 @@ static constexpr float DUTY_MIN_PERCENT = 5.0f;
 static constexpr float DUTY_MAX_PERCENT = 95.0f;
 
 // Update these credentials for your test network.
-static constexpr const char *WIFI_SSID = "CHEMA";
-static constexpr const char *WIFI_PASS = "12345678";
+static constexpr const char *WIFI_SSID = CONFIG_TELEMETRY_WIFI_SSID;// "CHEMA";
+static constexpr const char *WIFI_PASS = CONFIG_TELEMETRY_WIFI_PASSWORD;// "12345678";
 
 static float clampf(float x, float lo, float hi) {
 	if (x < lo) {
