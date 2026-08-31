@@ -1,3 +1,7 @@
+#include "sdkconfig.h"
+
+#ifdef CONFIG_BUILD_MODE_CONTROL
+
 #include <stdio.h>
 #include <string.h>
 #include <cmath>
@@ -19,8 +23,6 @@
 #include "apply_task.hpp"
 #include "sampler_task.hpp"
 #include "telemetry_task.hpp"
-
-#include "sdkconfig.h"
 
 using task::controller::ControllerTask;
 using task::controller::ControllerState_e;
@@ -214,3 +216,4 @@ extern "C" void app_main(void)
 	// Keep task alive after test to preserve logs and state.
 }
 
+#endif

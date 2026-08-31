@@ -1,0 +1,202 @@
+/**
+ * @file measurement.main.cpp
+ * @author ACMAX (you@domain.com)
+ * @brief
+ * @version 0.1
+ * @date 2026-08-30
+ *
+ * @copyright Copyright (c) 2026
+ *
+ */
+#include "sdkconfig.h"
+
+#ifdef CONFIG_BUILD_MODE_FUNCTION_MEASUREMENT
+
+#include <algorithm>
+#include <cstdio>
+#include <cstdint>
+#include <cmath>
+
+#include "esp_log.h"
+#include "esp_err.h"
+#include "esp_timer.h"
+#include "nvs_flash.h"
+#include "esp_netif.h"
+#include "esp_event.h"
+#include "esp_wifi.h"
+#include "driver/ledc.h"
+#include "driver/uart.h"
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/event_groups.h"
+
+#include "globals.hpp"
+#include "sampler_task.hpp"
+#include "encoder.hpp"
+#include "dc_plant.hpp"
+#include "controller.hpp"
+#include "controllers/ideal_control_law.hpp"
+#include "controllers/pid_controller.hpp"
+
+using namespace DCPlant;
+using task::sampler::SamplerTask;
+
+constexpr size_t MEASUREMENT_AMOUNT = 1000;
+constexpr char LOG_TAG[] = "function stats";
+
+struct stadistics
+{
+	float max     = 0.0f;
+	float min     = 0.0f;
+	float average = 0.0f;
+	float median  = 0.0f;
+	float std_dev = 0.0f;
+};
+
+enum experiment : int {
+	HANDLE_PULSE = 0,
+	FXD_TO_REPR,
+	FXD_FROM_REPR,
+	FXD_MUL,
+	OBSERVER_STEP,
+	IDEAL_CONTROL_LOOP,
+	PID_CONTROL_LOOP,
+	MAX
+};
+
+static stadistics get_stadistics(uint64_t *const values, const size_t size);
+static void print_stats(const char* title, const stadistics &stats);
+
+#define PRINT_STATS(exp,stat_arr) print_stats(#exp,stat_arr[exp])
+
+float error_func(float _setpoint) {
+	return _setpoint - Controller::read_speed_rad_s();
+};
+
+extern "C" void app_main(void) {
+	SamplerTask    &sampler_task    = SamplerTask::get_instance();
+	//Encoder test_encoder(sampler_task.get_encoder());
+	DCMotorObserver_64 test_observer(
+		SAMPLE_PARAMS, SAMPLE_OBS_PRMS, MODEL_SIM_TIME_s
+	);
+	IdealControlLaw    ideal_control(
+		3.1758f, /* K1 */
+		0.4152f, /* K2 */
+		0.0975f, /* Ki */
+		0.4560f  /* Ku */
+	);
+	PID                 pid_control(error_func, 0.8f, 0.2f, 0.0f);
+	Controller         *test_controller = nullptr;
+
+	uint64_t times[MEASUREMENT_AMOUNT] = { 0 };
+	uint64_t *const st = times;
+	uint64_t *const en = times + MEASUREMENT_AMOUNT;
+	uint64_t *idx = nullptr;
+	uint64_t st_time = 0;
+	uint64_t en_time = 0;
+	stadistics stats[experiment::MAX];
+
+	ESP_LOGI(LOG_TAG, "Init finished");
+
+	/* TEST ENCODER       */
+	// ESP_LOGI(LOG_TAG, "Encoder tests");
+	// test_encoder.reset();
+	// idx = st;
+	// while ( idx < en ) {
+	// 	st_time = esp_timer_get_time();
+	// 	test_encoder.handlePulse();
+	// 	en_time = esp_timer_get_time();
+	// 	*(idx++) = en_time - st_time;
+	// }
+	// stats[experiment::HANDLE_PULSE] = get_stadistics(st, MEASUREMENT_AMOUNT);
+
+	/* TEST OBSERVER      */
+	ESP_LOGI(LOG_TAG, "Observer tests");
+	int64_t mock_voltage = DCMotorObserver_64::to_repr(20.0f);
+	int64_t mock_speed   = DCMotorObserver_64::to_repr(256.0f);
+	test_observer.reset();
+	idx = st;
+	while ( idx < en ) {
+		st_time = esp_timer_get_time();
+		(void)test_observer.step(mock_voltage, mock_speed);
+		en_time = esp_timer_get_time();
+		*(idx++) = en_time - st_time;
+	}
+	stats[experiment::OBSERVER_STEP] = get_stadistics(st, MEASUREMENT_AMOUNT);
+
+	/* TEST IDEAL CONTROL */
+	ESP_LOGI(LOG_TAG, "Ideal Control tests");
+	test_controller = &ideal_control;
+	test_controller->setup();
+	float setpoint = 342.0f;
+	idx = st;
+	while ( idx < en ) {
+		st_time = esp_timer_get_time();
+		(void)test_controller->loop(setpoint);
+		en_time = esp_timer_get_time();
+		*(idx++) = en_time - st_time;
+	}
+	stats[experiment::IDEAL_CONTROL_LOOP] = get_stadistics(st, MEASUREMENT_AMOUNT);
+
+	/* TEST PID CONTROL   */
+	ESP_LOGI(LOG_TAG, "PID Control tests");
+	test_controller = &pid_control;
+	test_controller->setup();
+	idx = st;
+	while ( idx < en ) {
+		st_time = esp_timer_get_time();
+		(void)test_controller->loop(setpoint);
+		en_time = esp_timer_get_time();
+		*(idx++) = en_time - st_time;
+	}
+	stats[experiment::PID_CONTROL_LOOP] = get_stadistics(st, MEASUREMENT_AMOUNT);
+
+	PRINT_STATS(HANDLE_PULSE,       stats);
+	PRINT_STATS(FXD_TO_REPR,        stats);
+	PRINT_STATS(FXD_FROM_REPR,      stats);
+	PRINT_STATS(FXD_MUL,            stats);
+	PRINT_STATS(OBSERVER_STEP,      stats);
+	PRINT_STATS(IDEAL_CONTROL_LOOP, stats);
+	PRINT_STATS(PID_CONTROL_LOOP,   stats);
+
+	vTaskSuspend(NULL);
+}
+
+stadistics get_stadistics(uint64_t *const values, const size_t size) {
+	uint64_t *const end = values + size;
+	stadistics stats;
+
+	std::sort(values, end);
+
+	stats.max    = values[size - 1];
+	stats.min    = values[0];
+	stats.median = values[size/2];
+
+	const uint64_t *idx = values;
+	uint64_t acum = 0;
+	while ( idx < end ) {
+		acum += *(idx++);
+	}
+	stats.average = acum / (float)size;
+
+	float dev_acum = 0.0f;
+	idx = values;
+	while ( idx < end ) {
+		float deviation = *(idx++) - stats.average;
+		dev_acum += deviation * deviation / size;
+	}
+	stats.std_dev = std::sqrt(dev_acum);
+	return stats;
+}
+
+static void print_stats(const char* title, const stadistics &stats) {
+	std::printf("%s:\n", title);
+	std::printf("    max    : %10.3e\n", stats.max);
+	std::printf("    min    : %10.3e\n", stats.min);
+	std::printf("    median : %10.3e\n", stats.median);
+	std::printf("    average: %10.3e\n", stats.average);
+	std::printf("    std dev: %10.3e\n", stats.std_dev);
+}
+
+#endif

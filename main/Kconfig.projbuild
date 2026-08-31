@@ -1,0 +1,8 @@
+choice BUILD_MODE
+	prompt "Build mode"
+	default BUILD_MODE_CONTROL
+	config BUILD_MODE_CONTROL
+		bool "Control"
+	config BUILD_MODE_FUNCTION_MEASUREMENT
+		bool "Function measurement"
+endchoice
