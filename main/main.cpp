@@ -1,6 +1,6 @@
 #include "sdkconfig.h"
 
-#ifdef CONFIG_BUILD_MODE_CONTROL
+#ifdef CONFIG_CONTROLLER_BUILD_MODE_CONTROL
 
 #include <stdio.h>
 #include <string.h>

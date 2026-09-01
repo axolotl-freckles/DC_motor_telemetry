@@ -10,7 +10,7 @@
  */
 #include "sdkconfig.h"
 
-#ifdef CONFIG_BUILD_MODE_FUNCTION_MEASUREMENT
+#ifdef CONFIG_CONTROLLER_BUILD_MODE_FUNCTION_MEASUREMENT
 
 #include <algorithm>
 #include <cstdio>
@@ -68,7 +68,7 @@ enum experiment : int {
 static stadistics get_stadistics(uint64_t *const values, const size_t size);
 static void print_stats(const char* title, const stadistics &stats);
 
-#define PRINT_STATS(exp,stat_arr) print_stats(#exp,stat_arr[exp])
+#define EXP_PRINT_STATS(exp,stat_arr) print_stats(#exp "\0",stat_arr[exp])
 
 float error_func(float _setpoint) {
 	return _setpoint - Controller::read_speed_rad_s();
@@ -152,13 +152,13 @@ extern "C" void app_main(void) {
 	}
 	stats[experiment::PID_CONTROL_LOOP] = get_stadistics(st, MEASUREMENT_AMOUNT);
 
-	PRINT_STATS(HANDLE_PULSE,       stats);
-	PRINT_STATS(FXD_TO_REPR,        stats);
-	PRINT_STATS(FXD_FROM_REPR,      stats);
-	PRINT_STATS(FXD_MUL,            stats);
-	PRINT_STATS(OBSERVER_STEP,      stats);
-	PRINT_STATS(IDEAL_CONTROL_LOOP, stats);
-	PRINT_STATS(PID_CONTROL_LOOP,   stats);
+	EXP_PRINT_STATS(HANDLE_PULSE,       stats);
+	EXP_PRINT_STATS(FXD_TO_REPR,        stats);
+	EXP_PRINT_STATS(FXD_FROM_REPR,      stats);
+	EXP_PRINT_STATS(FXD_MUL,            stats);
+	EXP_PRINT_STATS(OBSERVER_STEP,      stats);
+	EXP_PRINT_STATS(IDEAL_CONTROL_LOOP, stats);
+	EXP_PRINT_STATS(PID_CONTROL_LOOP,   stats);
 
 	vTaskSuspend(NULL);
 }
