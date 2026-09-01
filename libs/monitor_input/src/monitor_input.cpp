@@ -38,7 +38,7 @@ static constexpr int   WAIT_LOG_PERIOD_ms    = 3000;
 static constexpr int   INPUT_POLL_ms         = 100;
 static constexpr int   INPUT_LINE_TIMEOUT_ms = 1200;
 static constexpr float SETPOINT_MIN_RPM      = 0.0f;
-static constexpr float SETPOINT_MAX_RPM      = 200.0f;
+static constexpr float SETPOINT_MAX_RPM      = 1756.0f;
 static constexpr float REACHED_TOLERANCE_RPM = 3.0f;
 
 static StaticEventGroup_t monitor_state_event_group;
