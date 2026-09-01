@@ -191,12 +191,12 @@ extern "C" void app_main(void)
 
 	float setpoint_init_rad_s = RPM_2_RAD(100.0f);
 	xQueueOverwrite(setpoint_qh, &setpoint_init_rad_s);
-	ESP_LOGI(TAG, "WS RPM setpoint mode enabled (range: 100..700 rpm)");
+	ESP_LOGI(TAG, "WS RPM setpoint mode enabled (range: 100..1756 rpm)");
 
 	while (true) {
 		float requested_rpm = 0.0f;
 		if ((ws_setpoint_qh != nullptr) && (pdTRUE == xQueueReceive(ws_setpoint_qh, &requested_rpm, 0))) {
-			const float clamped_rpm = clampf(requested_rpm, 100.0f, 700.0f);
+			const float clamped_rpm = clampf(requested_rpm, 100.0f, 1756.0f);
 			const float setpoint_rad_s = RPM_2_RAD(clamped_rpm);
 			xQueueOverwrite(setpoint_qh, &setpoint_rad_s);
 
@@ -213,4 +213,3 @@ extern "C" void app_main(void)
 
 	// Keep task alive after test to preserve logs and state.
 }
-

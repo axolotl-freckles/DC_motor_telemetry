@@ -163,14 +163,21 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("ESP32 Advanced Telemetry - EKF Only")
         self.resize(1300, 900)
 
-        # Configuración del archivo CSV para registrar datos
-        timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        self.csv_filename = f"telemetry_log_{timestamp_str}.csv"
-        self.csv_file = open(self.csv_filename, mode='w', newline='')
-        self.csv_writer = csv.writer(self.csv_file)
-        # Cabecera del archivo
-        self.csv_writer.writerow(["Timestamp", "Setpoint_RPM", "ESP_Voltage", "ESP_RPM", "ESP_Current", "ESP_Torque", 
-                                  "EKF_Voltage", "EKF_RPM", "EKF_Current", "EKF_Torque", "Data_Lost"])
+        # Activar o desactivar la grabación del archivo CSV.
+        # Ponlo en False si quieres evitar el bloqueo por escritura en disco.
+        self.save_csv = False
+
+        if self.save_csv:
+            timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            self.csv_filename = f"telemetry_log_{timestamp_str}.csv"
+            self.csv_file = open(self.csv_filename, mode='w', newline='')
+            self.csv_writer = csv.writer(self.csv_file)
+            self.csv_writer.writerow(["Timestamp", "Setpoint_RPM", "ESP_Voltage", "ESP_RPM", "ESP_Current", "ESP_Torque",
+                                      "EKF_Voltage", "EKF_RPM", "EKF_Current", "EKF_Torque", "Data_Lost"])
+        else:
+            self.csv_filename = None
+            self.csv_file = None
+            self.csv_writer = None
 
         self.max_points = 400
         self.time_data = []
@@ -190,6 +197,11 @@ class MainWindow(QMainWindow):
         self.current_lost_data_state = 1.0 
         self.loss_window = None
         self.loss_counter = 0
+
+        # Bandera para activar o desactivar el perfil automático de pérdidas.
+        # True = usa el perfil de pérdidas programado.
+        # False = recibe toda la data normalmente.
+        self.enable_loss_profile = False
 
         self.global_setpoint_val = 0.0
         self.is_frozen = False
@@ -359,7 +371,7 @@ class MainWindow(QMainWindow):
     def create_slider(self):
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setMinimum(0)  # Mínimo permitido: 0 RPM
-        slider.setMaximum(7000) 
+        slider.setMaximum(17560) 
         slider.setStyleSheet("""
             QSlider::groove:horizontal { height: 8px; background: #2D2D2D; border-radius: 4px; }
             QSlider::sub-page:horizontal { background: #007ACC; border-radius: 4px; }
@@ -370,7 +382,7 @@ class MainWindow(QMainWindow):
 
     def create_text_input(self):
         line_edit = QLineEdit()
-        line_edit.setValidator(QDoubleValidator(0.0, 700.0, 1))
+        line_edit.setValidator(QDoubleValidator(0.0, 1756.0, 1))
         line_edit.setStyleSheet("background-color: #333; color: white; padding: 5px; border: 1px solid #555; border-radius: 3px;")
         line_edit.editingFinished.connect(self.on_text_changed)
         return line_edit
@@ -387,7 +399,7 @@ class MainWindow(QMainWindow):
         try:
             new_val = float(text_val)
             if new_val < 0.0: new_val = 0.0
-            if new_val > 700.0: new_val = 700.0
+            if new_val > 17560.0: new_val = 17560.0
             
             if new_val != self.global_setpoint_val:
                 self.update_all_setpoint_uis(new_val, source=sender)
@@ -460,13 +472,20 @@ class MainWindow(QMainWindow):
         elif phase < 25.0:
             return 500.0
         elif phase < 45.0:
-            return 1750.0
-        elif phase < 60.0:
             return 1000.0
+        elif phase < 60.0:
+            return 1400.0
         else:
             return 0.0
 
     def should_drop_packet(self, timestamp):
+        # Bandera global para activar/desactivar el perfil automático de pérdidas.
+        if not self.enable_loss_profile:
+            if self.loss_window is not None:
+                self.loss_window = None
+                self.loss_counter = 0
+            return False
+
         cycle = 75.0
         phase = timestamp % cycle
 
@@ -535,20 +554,21 @@ class MainWindow(QMainWindow):
         self.ekf_i_amp_data.append(i_ekf)
         self.ekf_torque_data.append(t_ekf)
 
-        # GUARDAR LOS DATOS ACTUALES EN EL ARCHIVO CSV
-        self.csv_writer.writerow([
-            timestamp, 
-            current_sp, 
-            set_voltage if not is_data_lost else "NaN", 
-            rpm if not is_data_lost else "NaN", 
-            i_amp if not is_data_lost else "NaN", 
-            estimated_load if not is_data_lost else "NaN", 
-            v_ekf, 
-            rpm_ekf, 
-            i_ekf, 
-            t_ekf, 
-            is_data_lost
-        ])
+        # Guardar datos en CSV solo si la bandera lo permite.
+        if self.save_csv and self.csv_writer is not None:
+            self.csv_writer.writerow([
+                timestamp,
+                current_sp,
+                set_voltage if not is_data_lost else "NaN",
+                rpm if not is_data_lost else "NaN",
+                i_amp if not is_data_lost else "NaN",
+                estimated_load if not is_data_lost else "NaN",
+                v_ekf,
+                rpm_ekf,
+                i_ekf,
+                t_ekf,
+                is_data_lost
+            ])
 
         if len(self.time_data) > self.max_points:
             self.time_data.pop(0)
@@ -580,11 +600,11 @@ class MainWindow(QMainWindow):
         self.c_lost_sig.setData(self.time_data, self.lost_data_state_array)
 
     def closeEvent(self, event):
-        # Asegurarnos de cerrar el archivo CSV de manera segura al salir
-        if hasattr(self, 'csv_file') and not self.csv_file.closed:
+        # Cerrar el archivo CSV solo si se estaba usando.
+        if self.save_csv and self.csv_file is not None and not self.csv_file.closed:
             self.csv_file.close()
             print(f"Archivo de registro guardado como {self.csv_filename}")
-            
+
         self.transmit_timer.stop()
         self.server_thread.stop()
         event.accept()
