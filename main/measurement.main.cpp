@@ -12,7 +12,6 @@
 
 #ifdef CONFIG_CONTROLLER_BUILD_MODE_FUNCTION_MEASUREMENT
 
-#include <algorithm>
 #include <cstdio>
 #include <cstdint>
 #include <cmath>
@@ -42,7 +41,7 @@
 using namespace DCPlant;
 using task::sampler::SamplerTask;
 
-constexpr size_t MEASUREMENT_AMOUNT = 1000;
+constexpr size_t MEASUREMENT_AMOUNT = 500;
 constexpr char LOG_TAG[] = "function stats";
 
 struct stadistics
@@ -50,7 +49,6 @@ struct stadistics
 	float max     = 0.0f;
 	float min     = 0.0f;
 	float average = 0.0f;
-	float median  = 0.0f;
 	float std_dev = 0.0f;
 };
 
@@ -65,10 +63,17 @@ enum experiment : int {
 	MAX
 };
 
-static stadistics get_stadistics(uint64_t *const values, const size_t size);
+int64_t times[MEASUREMENT_AMOUNT] = { 0 };
+
+static void get_stadistics(const int64_t *const values, const size_t size, stadistics &stats);
 static void print_stats(const char* title, const stadistics &stats);
 
-#define EXP_PRINT_STATS(exp,stat_arr) print_stats(#exp "\0",stat_arr[exp])
+inline float int64_us_to_s (const int64_t us) {
+	//return 1.0e-6f*us;
+	return (float)us;
+}
+
+#define EXP_PRINT_STATS(exp,stat_arr) print_stats(#exp,stat_arr[exp])
 
 float error_func(float _setpoint) {
 	return _setpoint - Controller::read_speed_rad_s();
@@ -76,7 +81,7 @@ float error_func(float _setpoint) {
 
 extern "C" void app_main(void) {
 	SamplerTask    &sampler_task    = SamplerTask::get_instance();
-	//Encoder test_encoder(sampler_task.get_encoder());
+	Encoder test_encoder(sampler_task.get_encoder());
 	DCMotorObserver_64 test_observer(
 		SAMPLE_PARAMS, SAMPLE_OBS_PRMS, MODEL_SIM_TIME_s
 	);
@@ -89,27 +94,26 @@ extern "C" void app_main(void) {
 	PID                 pid_control(error_func, 0.8f, 0.2f, 0.0f);
 	Controller         *test_controller = nullptr;
 
-	uint64_t times[MEASUREMENT_AMOUNT] = { 0 };
-	uint64_t *const st = times;
-	uint64_t *const en = times + MEASUREMENT_AMOUNT;
-	uint64_t *idx = nullptr;
-	uint64_t st_time = 0;
-	uint64_t en_time = 0;
+	int64_t *const st = times;
+	int64_t *const en = times + MEASUREMENT_AMOUNT;
+	int64_t *idx = nullptr;
+	int64_t st_time = 0;
+	int64_t en_time = 0;
 	stadistics stats[experiment::MAX];
 
 	ESP_LOGI(LOG_TAG, "Init finished");
 
 	/* TEST ENCODER       */
-	// ESP_LOGI(LOG_TAG, "Encoder tests");
-	// test_encoder.reset();
-	// idx = st;
-	// while ( idx < en ) {
-	// 	st_time = esp_timer_get_time();
-	// 	test_encoder.handlePulse();
-	// 	en_time = esp_timer_get_time();
-	// 	*(idx++) = en_time - st_time;
-	// }
-	// stats[experiment::HANDLE_PULSE] = get_stadistics(st, MEASUREMENT_AMOUNT);
+	ESP_LOGI(LOG_TAG, "Encoder tests");
+	test_encoder.reset();
+	idx = st;
+	while ( idx < en ) {
+		st_time = esp_timer_get_time();
+		test_encoder.handlePulse();
+		en_time = esp_timer_get_time();
+		*(idx++) = en_time - st_time;
+	}
+	get_stadistics(st, MEASUREMENT_AMOUNT, stats[experiment::HANDLE_PULSE]);
 
 	/* TEST OBSERVER      */
 	ESP_LOGI(LOG_TAG, "Observer tests");
@@ -123,7 +127,7 @@ extern "C" void app_main(void) {
 		en_time = esp_timer_get_time();
 		*(idx++) = en_time - st_time;
 	}
-	stats[experiment::OBSERVER_STEP] = get_stadistics(st, MEASUREMENT_AMOUNT);
+	get_stadistics(st, MEASUREMENT_AMOUNT, stats[experiment::OBSERVER_STEP]);
 
 	/* TEST IDEAL CONTROL */
 	ESP_LOGI(LOG_TAG, "Ideal Control tests");
@@ -137,7 +141,7 @@ extern "C" void app_main(void) {
 		en_time = esp_timer_get_time();
 		*(idx++) = en_time - st_time;
 	}
-	stats[experiment::IDEAL_CONTROL_LOOP] = get_stadistics(st, MEASUREMENT_AMOUNT);
+	get_stadistics(st, MEASUREMENT_AMOUNT, stats[experiment::IDEAL_CONTROL_LOOP]);
 
 	/* TEST PID CONTROL   */
 	ESP_LOGI(LOG_TAG, "PID Control tests");
@@ -150,7 +154,7 @@ extern "C" void app_main(void) {
 		en_time = esp_timer_get_time();
 		*(idx++) = en_time - st_time;
 	}
-	stats[experiment::PID_CONTROL_LOOP] = get_stadistics(st, MEASUREMENT_AMOUNT);
+	get_stadistics(st, MEASUREMENT_AMOUNT, stats[experiment::PID_CONTROL_LOOP]);
 
 	EXP_PRINT_STATS(HANDLE_PULSE,       stats);
 	EXP_PRINT_STATS(FXD_TO_REPR,        stats);
@@ -163,38 +167,42 @@ extern "C" void app_main(void) {
 	vTaskSuspend(NULL);
 }
 
-stadistics get_stadistics(uint64_t *const values, const size_t size) {
-	uint64_t *const end = values + size;
-	stadistics stats;
+static void get_stadistics(const int64_t *const values, const size_t size, stadistics &stats) {
+	const int64_t *const end = values + size;
+	const int64_t *idx = values;
 
-	std::sort(values, end);
+	int64_t max = std::numeric_limits<int64_t>::min();
+	int64_t min = std::numeric_limits<int64_t>::max();
 
-	stats.max    = values[size - 1];
-	stats.min    = values[0];
-	stats.median = values[size/2];
+	while ( idx < end ) {
+		max = std::max(max, *idx);
+		min = std::min(min, *idx);
+		idx++;
+	}
 
-	const uint64_t *idx = values;
-	uint64_t acum = 0;
+	stats.max = int64_us_to_s( max );
+	stats.min = int64_us_to_s( min );
+
+	idx = values;
+	int64_t acum = 0;
 	while ( idx < end ) {
 		acum += *(idx++);
 	}
-	stats.average = acum / (float)size;
+	stats.average = int64_us_to_s( acum / size );
 
 	float dev_acum = 0.0f;
 	idx = values;
 	while ( idx < end ) {
-		float deviation = *(idx++) - stats.average;
+		float deviation = int64_us_to_s( *(idx++) ) - stats.average;
 		dev_acum += deviation * deviation / size;
 	}
 	stats.std_dev = std::sqrt(dev_acum);
-	return stats;
 }
 
 static void print_stats(const char* title, const stadistics &stats) {
 	std::printf("%s:\n", title);
 	std::printf("    max    : %10.3e\n", stats.max);
 	std::printf("    min    : %10.3e\n", stats.min);
-	std::printf("    median : %10.3e\n", stats.median);
 	std::printf("    average: %10.3e\n", stats.average);
 	std::printf("    std dev: %10.3e\n", stats.std_dev);
 }
