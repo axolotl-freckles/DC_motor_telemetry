@@ -1,6 +1,7 @@
 import sys
 import csv
 from datetime import datetime
+import time
 import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal, QObject, Qt, QTimer
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, 
@@ -103,8 +104,15 @@ def ekf_update(setpoint_rpm, rpm_raw, i_amp, torque_raw, v_raw, t_idx, data_lost
 
 # --- CONFIGURACIÓN DEL WEBSOCKET ---
 class CommSignals(QObject):
-    data_processed = pyqtSignal(float, float, float, float, float, float)
-    client_connected = pyqtSignal(str)
+    data_processed      = pyqtSignal(float,
+                                     float,
+                                     float,
+                                     float,
+                                     float,
+                                     float,
+                                     float,
+                                     float)
+    client_connected    = pyqtSignal(str)
     client_disconnected = pyqtSignal(str)
 
 signals = CommSignals()
@@ -117,15 +125,31 @@ class ESP32WebSocketHandler(WebSocket):
                 data_fields = [field.strip() for field in raw_string.split(',')]
                 
                 if len(data_fields) == 6:
-                    timestamp = float(data_fields[0])
-                    setpoint = float(data_fields[1])
-                    set_voltage = float(data_fields[2])
-                    rpm = float(data_fields[3])
-                    i_amp = float(data_fields[4])
-                    estimated_load = float(data_fields[5])
+                    received_time  = time.perf_counter()
+                    timestamp      = float(data_fields[0])
+                    sent_time      = float(data_fields[1])
+                    setpoint       = float(data_fields[2])
+                    set_voltage    = float(data_fields[3])
+                    rpm            = float(data_fields[4])
+                    i_amp          = float(data_fields[5])
+                    estimated_load = float(data_fields[6])
 
-                    if np.isfinite([timestamp, setpoint, set_voltage, rpm, i_amp, estimated_load]).all():
-                        signals.data_processed.emit(timestamp, setpoint, set_voltage, rpm, i_amp, estimated_load)
+                    if np.isfinite([timestamp,
+                                    sent_time,
+                                    received_time,
+                                    setpoint,
+                                    set_voltage,
+                                    rpm,
+                                    i_amp,
+                                    estimated_load ] ).all():
+                        signals.data_processed.emit(timestamp,
+                                                    sent_time,
+                                                    received_time,
+                                                    setpoint,
+                                                    set_voltage,
+                                                    rpm,
+                                                    i_amp,
+                                                    estimated_load )
             except ValueError:
                 pass
 
@@ -197,6 +221,12 @@ class MainWindow(QMainWindow):
         self.current_lost_data_state = 1.0 
         self.loss_window = None
         self.loss_counter = 0
+
+        self.last_sent_time         = time.perf_counter()
+        self.last_received_time     = time.perf_counter()
+        self.sent_time_dif_data     = []
+        self.received_time_dif_data = []
+        self.latency_data           = []
 
         # Bandera para activar o desactivar el perfil automático de pérdidas.
         # True = usa el perfil de pérdidas programado.
@@ -348,6 +378,8 @@ class MainWindow(QMainWindow):
         self.g_lost.setYRange(0, 1)
         self.g_lost.getAxis('left').setTicks([[(0, '-'), (1, '-')]])
         self.c_lost_sig = self.g_lost.plot(pen=pg.mkPen('#E53935', width=2), name="Dropped/Received")
+
+        # TODO: add graph for latency
 
         # 3. Formateo y alineación perfecta de las 5 gráficas
         all_plots = [self.g_ekf_1, self.g_ekf_2, self.g_ekf_3, self.g_ekf_4, self.g_lost]
@@ -511,7 +543,15 @@ class MainWindow(QMainWindow):
         return drop_now
 
     # --- DIBUJADO DE GRÁFICAS Y GUARDADO EN CSV ---
-    def update_plots(self, timestamp, setpoint, set_voltage, rpm, i_amp, estimated_load):
+    def update_plots(self,
+                     timestamp,
+                     sent_time,
+                     received_time,
+                     setpoint,
+                     set_voltage,
+                     rpm,
+                     i_amp,
+                     estimated_load ):
         # --- PERFIL AUTOMÁTICO DEL SETPOINT SEGÚN EL TIEMPO ---
         target_sp = self.get_auto_setpoint(timestamp)
 
@@ -537,12 +577,25 @@ class MainWindow(QMainWindow):
             self.esp_rpm_data.append(np.nan)
             self.esp_i_amp_data.append(np.nan)
             self.esp_torque_data.append(np.nan)
+            current_received_time = time.perf_counter()
+            current_sent_time     = self.last_sent_time
         else:
             # Los datos llegan con normalidad
             self.esp_voltage_data.append(set_voltage)
             self.esp_rpm_data.append(rpm)
             self.esp_i_amp_data.append(i_amp)
             self.esp_torque_data.append(estimated_load)
+            current_received_time = received_time
+            current_sent_time     = sent_time
+        # Latency calculations
+        received_time_dif = current_received_time - self.last_received_time
+        sent_time_dif     = current_sent_time     - self.last_sent_time
+
+        self.received_time_dif_data.append( received_time_dif )
+        self.sent_time_dif_data    .append( sent_time_dif )
+        # Assuming that the difference between receive time will never be lower
+        # than the difference between sent time
+        self.latency_data.append( received_time_dif - sent_time_dif )
 
         # La magia sucede aquí: Le mandamos los datos y la bandera "is_data_lost" al EKF
         v_ekf, rpm_ekf, i_ekf, t_ekf = ekf_update(
