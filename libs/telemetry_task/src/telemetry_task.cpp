@@ -181,13 +181,13 @@ void telemetry_task_fn(void *args) {
 		);
 
 		if ((s_ws_client != nullptr) && esp_websocket_client_is_connected(s_ws_client)) {
-			char tx[192];
+			char tx[78];
 			int len = snprintf(
 				tx,
 				sizeof(tx),
 				"%10.3e,%10.3e,%10.3e,%10.3e,%10.3e,%10.3e,%10.3e\n",
 				received_data.timestamp,
-				1.0e-6*esp_timer_get_time(),
+				esp_timer_get_time()*1e-6f,
 				rad_s_to_rpm(received_data.setpoint),
 				received_data.set_voltage,
 				received_data.w_rad_s * 60.0f/(2.0f*M_PI),
