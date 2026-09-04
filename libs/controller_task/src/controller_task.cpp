@@ -36,8 +36,8 @@ using namespace task::controller;
 const char LOG_TAG[] = "controller";
 
 constexpr TickType_t TELEMETRY_TICK_TIME_ms = SAMPLE_TIME_ms;
-constexpr float      WINDUP_PERIOD_s         = 0.5f;
-constexpr float      WINDOWN_PERIOD_s        = 0.5f;
+constexpr float      WINDUP_PERIOD_s         = 0.1f; //0.5
+constexpr float      WINDOWN_PERIOD_s        = 0.1f; //0.5
 constexpr int64_t    WATCHDOG_THRESH_us      = 1000;
 constexpr int64_t    STOP_TIMEOUT_us         = TELEMETRY_TICK_TIME_ms*1000LL;
 constexpr float      DEFAULT_SETPOINT        =  0.0f;//30.0f;
@@ -449,7 +449,7 @@ esp_err_t task::controller::ControllerTask::start() {
 	}
 	if (ESP_OK == can_start && transition_handler) {
 		transition_ok =
-			transition_handler->update_state(ControllerState_e::WINDUP);
+			transition_handler->update_state(ControllerState_e::WINDUP); // 			transition_handler->update_state(ControllerState_e::WINDUP);
 		if ( !transition_ok ) {
 			ESP_LOGE(LOG_TAG, "Start transition failed");
 			return ESP_ERR_NOT_ALLOWED;

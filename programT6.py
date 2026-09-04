@@ -68,8 +68,13 @@ def ekf_update(setpoint_rpm, rpm_raw, i_amp, torque_raw, v_raw, t_idx, data_lost
     escala_q = 1 + 0.10 * abs(e1) + 0.50 * (np.sin(2 * np.pi * t_idx / datos) ** 2)
     escala_r = 1 + 0.25 * abs(e1) + 0.50 * (np.cos(2 * np.pi * t_idx / datos) ** 2)
 
-    Q_EKF = escala_q * Qbase
-    R_EKF = escala_r * Rbase
+    #Variables de Q y R adaptativas 
+    Q_EKF = Qbase * escala_q
+    R_EKF = Rbase * escala_r
+
+    #Valores cttes promedio de Q y R (a base de prueba)
+    #Q_EKF = np.diag([1.60e-7, 0.0017, 1.7e-5, 0.00017])
+    #R_EKF = np.diag([0.00023, 0.0013, 0.0013, 0.0023])
 
     P_pred = F_EKF @ P_EKF @ F_EKF.T + Q_EKF
 
@@ -103,7 +108,7 @@ def ekf_update(setpoint_rpm, rpm_raw, i_amp, torque_raw, v_raw, t_idx, data_lost
 
     rpm_est = wm_EKFk * (60.0 / (2.0 * np.pi))
 
-    return Va_EKFk, rpm_est, ia_EKFk, TL_EKFk
+    return Va_EKFk, rpm_est, ia_EKFk, TL_EKFk, np.diag(Q_EKF), np.diag(R_EKF)
 
 # --- CONFIGURACIÓN DEL WEBSOCKET ---
 class CommSignals(QObject):
@@ -192,7 +197,7 @@ class MainWindow(QMainWindow):
 
         # Activar o desactivar la grabación del archivo CSV.
         # Ponlo en False si quieres evitar el bloqueo por escritura en disco.
-        self.save_csv = False
+        self.save_csv = True
 
         if self.save_csv:
             timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -200,7 +205,8 @@ class MainWindow(QMainWindow):
             self.csv_file = open(self.csv_filename, mode='w', newline='')
             self.csv_writer = csv.writer(self.csv_file)
             self.csv_writer.writerow(["Timestamp", "Setpoint_RPM", "ESP_Voltage", "ESP_RPM", "ESP_Current", "ESP_Torque",
-                                      "EKF_Voltage", "EKF_RPM", "EKF_Current", "EKF_Torque", "Data_Lost"])
+                                     "EKF_Voltage", "EKF_RPM", "EKF_Current", "EKF_Torque", "Data_Lost",
+                                     "Q_11", "Q_22", "Q_33", "Q_44", "R_11", "R_22", "R_33", "R_44"])
         else:
             self.csv_filename = None
             self.csv_file = None
@@ -231,6 +237,8 @@ class MainWindow(QMainWindow):
         self.received_time_dif_data = []
         self.latency_data           = []
         self.packet_loss_data       = []
+        self.q_data                 = [[] for _ in range(4)]
+        self.r_data                 = [[] for _ in range(4)]
 
         # Bandera para activar o desactivar el perfil automático de pérdidas.
         # True = usa el perfil de pérdidas programado.
@@ -259,6 +267,7 @@ class MainWindow(QMainWindow):
         pg.setConfigOption('foreground', 'w')
 
         self.init_tab_ekf()
+        self.init_tab_qr_analysis()
 
         main_layout.addWidget(self.tabs)
         self.setCentralWidget(main_widget)
@@ -316,6 +325,14 @@ class MainWindow(QMainWindow):
         self.c_latency_sen_diff.setData([], [])
         self.c_latency_main    .setData([], [])
         self.c_packet_loss     .setData([], [])
+        for curve in self.q_curves:
+            curve.setData([], [])
+        for curve in self.r_curves:
+            curve.setData([], [])
+        for series in self.q_data:
+            series.clear()
+        for series in self.r_data:
+            series.clear()
 
     # --- PESTAÑA: EKF ---
     def init_tab_ekf(self):
@@ -387,7 +404,7 @@ class MainWindow(QMainWindow):
         # 2. Gráfica para estado de transmisión
         self.g_lost = pg.PlotWidget()
         self.g_lost.addLegend(offset=(5, 5))
-        self.g_lost.setFixedHeight(60)
+        self.g_lost.setMinimumHeight(120)
         self.g_lost.setYRange(0, 1)
         self.g_lost.getAxis('left').setTicks([[(0, '-'), (1, '-')]])
         self.c_lost_sig = self.g_lost.plot(pen=pg.mkPen('#E53935', width=2), name="Dropped/Received")
@@ -406,7 +423,7 @@ class MainWindow(QMainWindow):
         self.c_packet_loss = self.g_packet_loss.plot(pen=pg.mkPen('#E53935', width=2),
                                                      name='Estimated packet loss')
 
-        # 3. Formateo y alineación perfecta de las 5 gráficas
+        # 3. Formateo y distribución en dos columnas
         self.all_plots = [self.g_ekf_1,
                      self.g_ekf_2,
                      self.g_ekf_3,
@@ -414,12 +431,74 @@ class MainWindow(QMainWindow):
                      self.g_lost,
                      self.g_latency,
                      self.g_packet_loss ]
+
         for g in self.all_plots:
             g.showGrid(x=True, y=True, alpha=0.3)
-            g.getAxis('left').setWidth(55)  # Fuerza un ancho idéntico en el margen izquierdo
-            layout.addWidget(g)
+            g.getAxis('left').setWidth(55)
+
+        plots_layout = QGridLayout()
+        plots_layout.setSpacing(6)
+
+        left_plots = [self.g_ekf_1, self.g_ekf_2, self.g_ekf_3, self.g_ekf_4]
+        right_plots = [self.g_lost, self.g_latency, self.g_packet_loss]
+
+        for row, plot in enumerate(left_plots):
+            plots_layout.addWidget(plot, row, 0)
+
+        for row, plot in enumerate(right_plots):
+            plots_layout.addWidget(plot, row, 1)
+
+        plots_layout.setColumnStretch(0, 1)
+        plots_layout.setColumnStretch(1, 1)
+        for row in range(4):
+            plots_layout.setRowStretch(row, 1)
+
+        layout.addLayout(plots_layout)
 
         self.tabs.addTab(self.tab_ekf, "Extended Kalman Filter")
+
+    def init_tab_qr_analysis(self):
+        self.tab_qr = QWidget()
+        layout = QVBoxLayout(self.tab_qr)
+
+        controls_layout = QHBoxLayout()
+        btn_reset_qr = QPushButton("Reset Zoom")
+        btn_reset_qr.clicked.connect(self.reset_zoom_qr)
+        btn_clear_qr = QPushButton("Clear Plot")
+        btn_clear_qr.clicked.connect(self.clear_graphs)
+        controls_layout.addWidget(btn_reset_qr)
+        controls_layout.addWidget(btn_clear_qr)
+        controls_layout.addStretch()
+        layout.addLayout(controls_layout)
+
+        self.g_qr = pg.PlotWidget(title="Valores de Q y R en tiempo real")
+        self.g_qr.addLegend(offset=(5, 5), colCount=4)
+        self.g_qr.showGrid(x=True, y=True, alpha=0.3)
+        self.g_qr.getAxis('left').setWidth(55)
+
+        q_colors = ['#FF9800', '#FFB300', '#F57C00', '#E65100']
+        r_colors = ['#03A9F4', '#29B6F6', '#0288D1', '#01579B']
+        self.q_curves = [
+            self.g_qr.plot(
+                pen=pg.mkPen(color, width=2),
+                name=f'Q[{index + 1},{index + 1}]'
+            )
+            for index, color in enumerate(q_colors)
+        ]
+        self.r_curves = [
+            self.g_qr.plot(
+                pen=pg.mkPen(color, width=2),
+                name=f'R[{index + 1},{index + 1}]'
+            )
+            for index, color in enumerate(r_colors)
+        ]
+
+        layout.addWidget(self.g_qr)
+        self.tabs.addTab(self.tab_qr, "Q / R")
+
+    def reset_zoom_qr(self):
+        self.g_qr.enableAutoRange()
+        self.g_qr.enableAutoRange(axis='x')
 
     def reset_zoom_ekf(self):
         self.g_ekf_1.setYRange(0, 350)
@@ -527,19 +606,42 @@ class MainWindow(QMainWindow):
 
     # --- PERFIL AUTOMÁTICO DE VELOCIDAD Y PÉRDIDAS DE PAQUETES ---
     def get_auto_setpoint(self, timestamp):
-        cycle = 75.0
+
+        #return 900.0
+    
+        cycle = 80.0
         phase = timestamp % cycle
 
-        if phase < 5.0:
-            return 0.0
-        elif phase < 25.0:
-            return 500.0
-        elif phase < 45.0:
-            return 1000.0
+        if phase < 10.0:
+            return 100.0
         elif phase < 60.0:
-            return 1400.0
+            return 900.0
         else:
             return 0.0
+        
+        #Standar (Copiar)
+        #if phase < 10.0:
+        #    return 100.0
+        #elif 10 <= phase < 30.0:
+        #    return 500.0
+        #elif 30.0 <= phase < 50.0:
+        #    return 900.0
+        #elif 50.0 <= phase < 70.0:
+        #    return 700.0
+        #else:
+        #    return 0.0
+
+        #Prueba 1 (T=0.001)
+        #if phase < 10.0:
+        #    return 100.0
+        #elif 10 <= phase < 30.0:
+        #    return 500.0
+        #elif 30.0 <= phase < 50.0:
+        #    return 900.0
+        #elif 50.0 <= phase < 70.0:
+        #    return 700.0
+        #else:
+        #    return 0.0
 
     def should_drop_packet(self, timestamp):
         # Bandera global para activar/desactivar el perfil automático de pérdidas.
@@ -549,15 +651,32 @@ class MainWindow(QMainWindow):
                 self.loss_counter = 0
             return False
 
-        cycle = 75.0
+        # Si el perfil de pérdidas está activo, determinamos si se debe dejar caer un paquete.
+        cycle = 80.0
         phase = timestamp % cycle
 
-        if 5.0 <= phase < 10.0:
-            loss_pattern = (2, 1)
-        elif 20.0 <= phase < 27.5:
+        if 10 <= phase < 15.0:
+            loss_pattern = (2, 1) 
+        elif 25.0 <= phase < 30.0:
             loss_pattern = (4, 3)
-        elif 40.0 <= phase < 55.0:
-            loss_pattern = (8, 7)
+        elif 45.0 <= phase < 55.0:
+            loss_pattern = (20, 18)
+
+        #Standar (copiar)
+        #if 10 <= phase < 15.0:
+        #    loss_pattern = (2, 1) 
+        #elif 25.0 <= phase < 30.0:
+        #    loss_pattern = (4, 3)
+        #elif 45.0 <= phase < 55.0:
+        #    loss_pattern = (20, 18)
+
+        #Prueba 1 (T=0.001)
+        #if 10 <= phase < 15.0:
+        #    loss_pattern = (2, 1) 
+        #elif 25.0 <= phase < 30.0:
+        #    loss_pattern = (4, 3)
+        #elif 45.0 <= phase < 55.0:
+        #    loss_pattern = (20, 18)
         else:
             if self.loss_window is not None:
                 self.loss_window = None
@@ -639,7 +758,7 @@ class MainWindow(QMainWindow):
         self.packet_loss_data.append(estimated_packet_loss)
 
         # La magia sucede aquí: Le mandamos los datos y la bandera "is_data_lost" al EKF
-        v_ekf, rpm_ekf, i_ekf, t_ekf = ekf_update(
+        v_ekf, rpm_ekf, i_ekf, t_ekf, q_diag, r_diag = ekf_update(
             current_sp, rpm, i_amp, estimated_load, set_voltage, len(self.time_data), data_lost=is_data_lost
         )
 
@@ -647,6 +766,9 @@ class MainWindow(QMainWindow):
         self.ekf_rpm_data.append(rpm_ekf)
         self.ekf_i_amp_data.append(i_ekf)
         self.ekf_torque_data.append(t_ekf)
+        for index in range(4):
+            self.q_data[index].append(float(q_diag[index]))
+            self.r_data[index].append(float(r_diag[index]))
 
         # Guardar datos en CSV solo si la bandera lo permite.
         if self.save_csv and self.csv_writer is not None:
@@ -661,7 +783,15 @@ class MainWindow(QMainWindow):
                 rpm_ekf,
                 i_ekf,
                 t_ekf,
-                is_data_lost
+                is_data_lost,
+                q_diag[0],
+                q_diag[1],
+                q_diag[2],
+                q_diag[3],
+                r_diag[0],
+                r_diag[1],
+                r_diag[2],
+                r_diag[3]
             ])
 
         if len(self.time_data) > self.max_points:
@@ -681,6 +811,9 @@ class MainWindow(QMainWindow):
             self.sent_time_dif_data    .pop(0)
             self.latency_data          .pop(0)
             self.packet_loss_data      .pop(0)
+            for index in range(4):
+                self.q_data[index].pop(0)
+                self.r_data[index].pop(0)
 
         if self.is_frozen:
             return  # Detiene la actualización visual sin perder datos en memoria
@@ -700,6 +833,10 @@ class MainWindow(QMainWindow):
         self.c_latency_sen_diff.setData(self.time_data, self.sent_time_dif_data)
         self.c_latency_main    .setData(self.time_data, self.latency_data)
         self.c_packet_loss     .setData(self.time_data, self.packet_loss_data)
+        for index, curve in enumerate(self.q_curves):
+            curve.setData(self.time_data, self.q_data[index])
+        for index, curve in enumerate(self.r_curves):
+            curve.setData(self.time_data, self.r_data[index])
 
     def closeEvent(self, event):
         # Cerrar el archivo CSV solo si se estaba usando.
