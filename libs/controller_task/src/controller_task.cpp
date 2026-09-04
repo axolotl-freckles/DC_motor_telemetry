@@ -11,6 +11,7 @@
 
 #include "controller_task.hpp"
 
+#include "sdkconfig.h"
 #include "globals.hpp"
 
 #include "esp_log.h"
@@ -28,12 +29,6 @@
 #include "sampler_task.hpp"
 #include "apply_task.hpp"
 #include "telemetry_task.hpp"
-
-#define CONTROLLER_TYPE_PID   0
-#define CONTROLLER_TYPE_OPEN  1
-#define CONTROLLER_TYPE_IDEAL 2
-
-#define CONTROLLER_TYPE CONTROLLER_TYPE_IDEAL
 
 using namespace task;
 using namespace task::controller;
@@ -113,13 +108,13 @@ static inline const char * state_to_str(EventBits_t state_bits) {
 }
 
 static void control_task_fn(void *args) {
-#if CONTROLLER_TYPE == CONTROLLER_TYPE_PID
+#ifdef CONFIG_CONTROLLER_TASK_CONTROLLER_TYPE_PID
 	char controller_mem_space[sizeof(PID)                             ] = {0};
 #endif
-#if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
+#ifdef CONFIG_CONTROLLER_TASK_CONTROLLER_TYPE_OPEN_LOOP
 	char controller_mem_space[sizeof(OpenLoop)                        ] = {0};
 #endif
-#if CONTROLLER_TYPE == CONTROLLER_TYPE_IDEAL
+#ifdef CONFIG_CONTROLLER_TASK_CONTROLLER_TYPE_LQR
 	char controller_mem_space[sizeof(IdealControlLaw)                 ] = {0};
 #endif
 	char trans_hand_mem_space[sizeof(StateSwitcher<ControllerState_e>)] = {0};
@@ -139,24 +134,28 @@ static void control_task_fn(void *args) {
 	);
 	transition_handler->update_state(ControllerState_e::IDLE);
 
-#if CONTROLLER_TYPE == CONTROLLER_TYPE_PID
+#ifdef CONFIG_CONTROLLER_TASK_CONTROLLER_TYPE_PID
 	PID::ErrorFunction_t error_func = [] (float _setpoint) -> float {
 		return _setpoint - Controller::read_speed_rad_s();
 	};
 
-	dc_controller = new (controller_mem_space) PID(error_func, 0.8f, 0.2f, 0.0f);
+	dc_controller = new (controller_mem_space) PID(
+		error_func,
+		CONFIG_CONTROL_PID_KP*1e-3f,
+		CONFIG_CONTROL_PID_KI*1e-3f,
+		CONFIG_CONTROL_PID_KD*1e-3f
+	);
 	((PID*)dc_controller)->set_integrator_saturators(2.5f);
 #endif
-#if CONTROLLER_TYPE == CONTROLLER_TYPE_OPEN
+#ifdef CONFIG_CONTROLLER_TASK_CONTROLLER_TYPE_OPEN_LOOP
 	dc_controller = new (controller_mem_space) OpenLoop();
 #endif
-#if CONTROLLER_TYPE == CONTROLLER_TYPE_IDEAL
+#ifdef CONFIG_CONTROLLER_TASK_CONTROLLER_TYPE_LQR
 	dc_controller = new (controller_mem_space) IdealControlLaw(
-		3.1758f, /* K1 */
-		0.4152f, /* K2 */
-		0.0975f, /* Ki */
-		0.4560f 
-
+		CONFIG_CONTROL_LQR_K1*1e-3f,
+		CONFIG_CONTROL_LQR_K2*1e-3f,
+		CONFIG_CONTROL_LQR_KI*1e-3f,
+		CONFIG_CONTROL_LQR_NU*1e-3f
 	);
 #endif
 

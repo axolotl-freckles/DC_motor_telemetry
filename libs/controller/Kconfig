@@ -1,0 +1,27 @@
+menu "Control Law"
+	menu "PID"
+		config CONTROL_PID_KP
+			int "Proportional gain (xE-3)"
+			default 800
+		config CONTROL_PID_KI
+			int "Integral gain (xE-3)"
+			default 200
+		config CONTROL_PID_KD
+			int "Integral gain (xE-3)"
+			default 0
+	endmenu
+	menu "Ideal Control Law"
+		config CONTROL_LQR_K1
+			int "LQR K1 gain (xE-3)"
+			default 3175
+		config CONTROL_LQR_K2
+			int "LQR K2 gain (xE-3)"
+			default 415
+		config CONTROL_LQR_KI
+			int "LQR Ki gain (xE-3)"
+			default 98
+		config CONTROL_LQR_NU
+			int "LQR Nu gain (xE-3)"
+			default 456
+	endmenu
+endmenu

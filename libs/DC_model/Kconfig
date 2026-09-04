@@ -1,0 +1,46 @@
+menu "DC Motor Plant Model"
+	menu "Plant Parameters"
+		config DC_MODEL_PLANT_RESISTANCE
+			int "Resistance of the DC Motor (xE-3)"
+			default 6600
+			help Resistance in ohms of the DC Motor.
+				The integer value set here is going to be multiplied by 1e-3 for the
+				simulation.
+		config DC_MODEL_PLANT_INDUCTANCE
+			int "Inductance of the DC Motor (xE-6)"
+			default 8150
+			help Inductance in Henrs of the DC Motor.
+				The integer value set here is going to be multiplied by 1e-6 for the
+				simulation.
+		config DC_MODEL_PLANT_MOMENT_OF_INERCIA
+			int "Moment of inercia of the DC Motor (xE-3)"
+			default 6
+			help Moment of inercia in kg/m2 of the DC Motor.
+				The integer value set here is going to be multiplied by 1e-3 for the
+				simulation.
+	endmenu
+	config DC_MODEL_OVERRIDE_OBSERVER_PARAMS
+		bool "Override default observer params"
+		default false
+	menu "Observer Parameters"
+		depends on DC_MODEL_OVERRIDE_OBSERVER_PARAMS
+		config DC_MODEL_OBSERVER_ALFA_1
+			int "Alfa 1 (xE-6)"
+			default -10
+		config DC_MODEL_OBSERVER_ALFA_2
+			int "Alfa 2 (xE-6)"
+			default -10
+		config DC_MODEL_OBSERVER_ALFA_3
+			int "Alfa 3 (xE-3)"
+			default -1000
+		config DC_MODEL_OBSERVER_K1
+			int "K1 (xE-9)"
+			default 1
+		config DC_MODEL_OBSERVER_K2
+			int "K2 (xE-9)"
+			default 1
+		config DC_MODEL_OBSERVER_K3
+			int "K3 (xE-6)"
+			default 100000
+	endmenu
+endmenu

@@ -12,8 +12,10 @@
 
 #include <cstdint>
 
-constexpr uint32_t SAMPLE_TIME_ms    = 10;
-constexpr uint64_t MODEL_SIM_TIME_us = 200;
+#include "sdkconfig.h"
+
+constexpr uint32_t SAMPLE_TIME_ms    = CONFIG_MOTOR_TELEMETRY_SAMPLE_TIME_ms;
+constexpr uint64_t MODEL_SIM_TIME_us = CONFIG_MOTOR_TELEMETRY_MODEL_SIM_TIME_us;
 constexpr uint32_t MODEL_SIM_TIME_ms = MODEL_SIM_TIME_us/1000.0f;
 constexpr float    SAMPLE_TIME_s     = SAMPLE_TIME_ms*1e-3f;
 constexpr float    MODEL_SIM_TIME_s  = MODEL_SIM_TIME_us*1e-6f;

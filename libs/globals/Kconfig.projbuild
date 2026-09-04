@@ -1,0 +1,12 @@
+menu "DC Motor Telemetry general settings"
+	config MOTOR_TELEMETRY_SAMPLE_TIME_ms
+		int "Sample Time (ms)"
+		default 10
+		help
+			Sample time of the control loop in milliseconds.
+	config MOTOR_TELEMETRY_MODEL_SIM_TIME_us
+		int "Simulation Time (us)"
+		default 200
+		help
+			Sample time of the sliding filter observer in microseconds.
+endmenu

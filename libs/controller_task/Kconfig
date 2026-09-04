@@ -1,0 +1,12 @@
+menu "Controller Task"
+	choice CONTROLLER_TASK_CONTROLLER_TYPE
+		prompt "Controller type"
+		default CONTROLLER_TASK_CONTROLLER_TYPE_LQR
+		config CONTROLLER_TASK_CONTROLLER_TYPE_OPEN_LOOP
+			bool "Open Loop"
+		config CONTROLLER_TASK_CONTROLLER_TYPE_PID
+			bool "PID"
+		config CONTROLLER_TASK_CONTROLLER_TYPE_LQR
+			bool "Ideal Control Law (LQR)"
+	endchoice
+endmenu
