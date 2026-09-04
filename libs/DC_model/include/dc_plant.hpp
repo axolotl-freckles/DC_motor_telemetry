@@ -181,6 +181,7 @@ const DCPlant::dc_parameters SAMPLE_PARAMS = {
 	.Kt_Nm_A      = 0.436f,
 	.Kb_V_rad_s   = 0.436f
 };
+#ifndef CONFIG_DC_MODEL_OVERRIDE_OBSERVER_PARAMS
 const DCPlant::DCMotorObserver::EstimationParams SAMPLE_OBS_PRMS = {
 	.alfa_1 = -0.00001f,
 	.alfa_2 = -0.00001f,
@@ -189,3 +190,13 @@ const DCPlant::DCMotorObserver::EstimationParams SAMPLE_OBS_PRMS = {
 	.k_2    = 0.00000001f,
 	.k_3    = 0.100000001f,
 };
+#else
+const DCPlant::DCMotorObserver::EstimationParams SAMPLE_OBS_PRMS = {
+	.alfa_1 = CONFIG_DC_MODEL_OBSERVER_ALFA_1*1e-6f,
+	.alfa_2 = CONFIG_DC_MODEL_OBSERVER_ALFA_2*1e-6f,
+	.alfa_3 = CONFIG_DC_MODEL_OBSERVER_ALFA_3*1e-3f,
+	.k_1    = CONFIG_MODEL_OBSERVER_K1*1e-9f,
+	.k_2    = CONFIG_MODEL_OBSERVER_K2*1e-9f,
+	.k_3    = CONFIG_MODEL_OBSERVER_K3*1e-6f,
+};
+#endif
