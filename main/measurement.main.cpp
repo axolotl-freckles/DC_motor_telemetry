@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <cmath>
+#include <cstring>
 
 #include "esp_log.h"
 #include "esp_err.h"
@@ -63,14 +64,11 @@ enum experiment : int {
 	MAX
 };
 
-int64_t times[MEASUREMENT_AMOUNT] = { 0 };
-
 static void get_stadistics(const int64_t *const values, const size_t size, stadistics &stats);
 static void print_stats(const char* title, const stadistics &stats);
 
 inline float int64_us_to_s (const int64_t us) {
-	//return 1.0e-6f*us;
-	return (float)us;
+	return 1.0e-6f*us;
 }
 
 #define EXP_PRINT_STATS(exp,stat_arr) print_stats(#exp,stat_arr[exp])
@@ -93,10 +91,9 @@ extern "C" void app_main(void) {
 	);
 	PID                 pid_control(error_func, 0.8f, 0.2f, 0.0f);
 	Controller         *test_controller = nullptr;
+	int64_t *times = (int64_t*)malloc(MEASUREMENT_AMOUNT*sizeof(int64_t));
 
-	int64_t *const st = times;
-	int64_t *const en = times + MEASUREMENT_AMOUNT;
-	int64_t *idx = nullptr;
+	size_t   idx     = 0;
 	int64_t st_time = 0;
 	int64_t en_time = 0;
 	stadistics stats[experiment::MAX];
@@ -106,55 +103,59 @@ extern "C" void app_main(void) {
 	/* TEST ENCODER       */
 	ESP_LOGI(LOG_TAG, "Encoder tests");
 	test_encoder.reset();
-	idx = st;
-	while ( idx < en ) {
+	idx = 0;
+	std::memset(times, 0, MEASUREMENT_AMOUNT*sizeof(int64_t));
+	while ( idx < MEASUREMENT_AMOUNT ) {
 		st_time = esp_timer_get_time();
 		test_encoder.handlePulse();
 		en_time = esp_timer_get_time();
-		*(idx++) = en_time - st_time;
+		times[idx++] = en_time - st_time;
 	}
-	get_stadistics(st, MEASUREMENT_AMOUNT, stats[experiment::HANDLE_PULSE]);
+	get_stadistics(times, MEASUREMENT_AMOUNT, stats[experiment::HANDLE_PULSE]);
 
 	/* TEST OBSERVER      */
 	ESP_LOGI(LOG_TAG, "Observer tests");
 	int64_t mock_voltage = DCMotorObserver_64::to_repr(20.0f);
 	int64_t mock_speed   = DCMotorObserver_64::to_repr(256.0f);
 	test_observer.reset();
-	idx = st;
-	while ( idx < en ) {
+	idx = 0;
+	std::memset(times, 0, MEASUREMENT_AMOUNT*sizeof(int64_t));
+	while ( idx < MEASUREMENT_AMOUNT ) {
 		st_time = esp_timer_get_time();
 		(void)test_observer.step(mock_voltage, mock_speed);
 		en_time = esp_timer_get_time();
-		*(idx++) = en_time - st_time;
+		times[idx++] = en_time - st_time;
 	}
-	get_stadistics(st, MEASUREMENT_AMOUNT, stats[experiment::OBSERVER_STEP]);
+	get_stadistics(times, MEASUREMENT_AMOUNT, stats[experiment::OBSERVER_STEP]);
 
 	/* TEST IDEAL CONTROL */
 	ESP_LOGI(LOG_TAG, "Ideal Control tests");
 	test_controller = &ideal_control;
 	test_controller->setup();
 	float setpoint = 342.0f;
-	idx = st;
-	while ( idx < en ) {
+	idx = 0;
+	std::memset(times, 0, MEASUREMENT_AMOUNT*sizeof(int64_t));
+	while ( idx < MEASUREMENT_AMOUNT ) {
 		st_time = esp_timer_get_time();
 		(void)test_controller->loop(setpoint);
 		en_time = esp_timer_get_time();
-		*(idx++) = en_time - st_time;
+		times[idx++] = en_time - st_time;
 	}
-	get_stadistics(st, MEASUREMENT_AMOUNT, stats[experiment::IDEAL_CONTROL_LOOP]);
+	get_stadistics(times, MEASUREMENT_AMOUNT, stats[experiment::IDEAL_CONTROL_LOOP]);
 
 	/* TEST PID CONTROL   */
 	ESP_LOGI(LOG_TAG, "PID Control tests");
 	test_controller = &pid_control;
 	test_controller->setup();
-	idx = st;
-	while ( idx < en ) {
+	idx = 0;
+	std::memset(times, 0, MEASUREMENT_AMOUNT*sizeof(int64_t));
+	while ( idx < MEASUREMENT_AMOUNT ) {
 		st_time = esp_timer_get_time();
 		(void)test_controller->loop(setpoint);
 		en_time = esp_timer_get_time();
-		*(idx++) = en_time - st_time;
+		times[idx++] = en_time - st_time;
 	}
-	get_stadistics(st, MEASUREMENT_AMOUNT, stats[experiment::PID_CONTROL_LOOP]);
+	get_stadistics(times, MEASUREMENT_AMOUNT, stats[experiment::PID_CONTROL_LOOP]);
 
 	EXP_PRINT_STATS(HANDLE_PULSE,       stats);
 	EXP_PRINT_STATS(FXD_TO_REPR,        stats);
@@ -164,6 +165,7 @@ extern "C" void app_main(void) {
 	EXP_PRINT_STATS(IDEAL_CONTROL_LOOP, stats);
 	EXP_PRINT_STATS(PID_CONTROL_LOOP,   stats);
 
+	free(times);
 	vTaskSuspend(NULL);
 }
 
